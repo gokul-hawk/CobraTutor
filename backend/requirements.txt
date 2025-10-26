@@ -1,0 +1,11 @@
+django
+djangorestframework
+djongo
+neomodel
+djangorestframework-simplejwt
+python-dotenv
+mongoengine
+Werkzeug 
+google-generativeai
+django-cors-headers
+google-generativeai

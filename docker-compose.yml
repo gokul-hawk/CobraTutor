@@ -1,0 +1,53 @@
+
+
+services:
+  # The Django Backend Service
+  frontend:
+    build: ./frontend
+    container_name: cobra_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+  backend:
+    build: ./backend
+    container_name: cobra_backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app  # Mounts our local code into the container for live-reloading
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./.env # Loads environment variables from the .env file
+    depends_on:
+      - db
+      - graph_db
+
+  # The MongoDB Database Service
+  db:
+    image: mongo:latest
+    container_name: cobra_mongo_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # The Neo4j Knowledge Graph Service
+  graph_db:
+    image: neo4j:latest
+    container_name: cobra_neo4j_db
+    ports:
+      - "7474:7474" # For the Neo4j Browser UI
+      - "7687:7687" # For the Bolt driver (how Django will connect)
+    environment:
+      # !! IMPORTANT: Change this password in your .env file for production !!
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  mongo_data:
+  neo4j_data:
