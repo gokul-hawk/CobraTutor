@@ -1,6 +1,8 @@
 from django.http import JsonResponse
-import google.generativeai as genai
-model = genai.GenerativeModel("gemini-2.5-flash")
+# import google.generativeai as genai (REMOVED)
+from chatbot.services.groq_service import GroqService
+groq_service = GroqService()
+# model = genai.GenerativeModel("gemini-2.5-flash") (REMOVED)
 from django.http import JsonResponse
 from .models import  UserQuestion
 from users.models import User
@@ -62,16 +64,16 @@ def get_hint(request):
     prompt = f"Give a step-by-step hint for solving: {question}, \
                but do not provide the full solution."
 
-    response = model.generate_content(prompt)
-    return JsonResponse({"hint": response.text})
+    # response = model.generate_content(prompt)
+    # return JsonResponse({"hint": response.text})
+    text = groq_service.generate_content(prompt)
+    return JsonResponse({"hint": text})
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 import requests
-import os
-
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# API_KEY = os.environ.get("GEMINI_API_KEY", "") (REMOVED)
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -105,22 +107,53 @@ RULES:
 17.Make sure the illustrattion of how a real code algorithm would work
 18.do the swapping or changing of datastructures in real time.
 Do not add any additional commentary — output only the HTML document.
+
+Steps:
+1. Get the problem or algorithm from the user
+2. identify the problem or algorithm
+3. Find the best method or implementation of the solution for the problem
+4. Identify the Datastructures needed for the problem
+5. now plan the blocks to get input
+6 now plan all possible interaction in the HTML
+7. now plan all the code, data structure and explaination of each step in the HTML
+8. now plan the final code
+9. provide code snippet 
+10. now generate html with clean code and provide best animaation for with tailwind css
     """
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-    }
-
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key={API_KEY}"
-
+    # Use Groq logic instead of direct Gemini REST call
+    # Construct a full prompt with system instruction
+    full_prompt = f"{system_prompt}\n\nUser Prompt: {prompt}"
+    
     try:
-        r = requests.post(api_url, json=payload)
-        r.raise_for_status()
-        data = r.json()
-        jsx = data["candidates"][0]["content"]["parts"][0]["text"]
+        jsx = groq_service.generate_content(full_prompt)
         # Clean any markdown fences
-        jsx = jsx.replace("```jsx", "").replace("```", "").strip()
+        jsx = jsx.replace("```html", "").replace("```", "").strip()
         return Response({"code": jsx})
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+    
+# api/views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from mongoengine import connect
+from django.conf import settings
+from .services.agent_service import process_user_query
+
+
+class CodeAgentView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    def post(self, request):
+        user_query = request.data.get("query", "")
+        if not user_query:
+            return Response({"error": "Missing query"}, status=400)
+        try:
+            user=request.user.id
+            result = process_user_query(user_query,user)
+            print("Agent result:", result)
+            return Response(result)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+

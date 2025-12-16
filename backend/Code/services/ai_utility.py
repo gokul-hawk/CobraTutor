@@ -1,11 +1,13 @@
 # ai_utils.py
-import google.generativeai as genai
+# import google.generativeai as genai (REMOVED)
+from chatbot.services.groq_service import GroqService
 from django.conf import settings
 import os
 import re
 
-API_KEY = os.environ.get("GEMINI_API_KEY", None)
-genai.configure(api_key=API_KEY)
+# API_KEY = os.environ.get("GEMINI_API_KEY", None)
+# genai.configure(api_key=API_KEY)
+groq_service = GroqService()
 
 def generate_question_with_testcases(topic: str):
     print(topic)
@@ -51,17 +53,19 @@ It is guaranteed for each appearance of the character '*', there will be a previ
       ],
     }}
     Do not include explanations, only valid JSON.
+    Do not include explanations, only valid JSON.
     """
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content(prompt)
-    clean_text = re.sub(r"^```(?:json)?|```$", "", response.text, flags=re.MULTILINE).strip()
-    print("Gemini raw response:", response.text)
+    # model = genai.GenerativeModel("gemini-2.5-flash")
+    # response = model.generate_content(prompt)
+    text = groq_service.generate_content(prompt)
+    clean_text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.MULTILINE).strip()
+    print("Groq raw response:", text)
 
     # Parse JSON safely
     import json
     try:
         data = json.loads(clean_text)
-        print("Parsed Gemini data:", data)
+        print("Parsed Groq data:", data)
     except Exception:
         data = {"question": "Failed to parse Gemini output", "test_cases": []}
         print("Error parsing Gemini response:", clean_text)

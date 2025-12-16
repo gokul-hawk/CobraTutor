@@ -24,3 +24,17 @@ class QuizResultSerializer(serializers.Serializer):
     score = serializers.FloatField()
     passed = serializers.BooleanField()
     feedback = serializers.DictField() # To give feedback per question```
+
+# quiz/serializers.py
+from rest_framework import serializers
+
+class QuizSubmissionItemSerializer(serializers.Serializer):
+    attempt_id = serializers.CharField()
+    answers = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.CharField()
+        )
+    )
+
+class SubmitQuizRequestSerializer(serializers.Serializer):
+    submissions = QuizSubmissionItemSerializer(many=True)

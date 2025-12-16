@@ -9,6 +9,7 @@ import Playground from './components/Playground';
 import Quiz from './components/Quiz';
 import PythonRunner from './components/Coding';
 import Dashboard from './components/Dashboard';
+import TutorApp from './components/Chat/TutorApp';
 // A wrapper component to protect routes
 const PrivateRoute = ({ children }) => {
     const user = authService.getCurrentUser();
@@ -27,6 +28,7 @@ function App() {
         <Route path="/register" element={<Register />} />
        <Route path='/quiz' element={<Quiz />} />
        <Route path='/coding' element={<PythonRunner />} />
+        <Route path='/tutor' element={<TutorApp />} />
         <Route
           path="/dashboard"
           element={

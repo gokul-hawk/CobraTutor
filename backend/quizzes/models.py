@@ -6,7 +6,7 @@ import datetime
 class Choice(EmbeddedDocument):
    
     text = StringField(required=True)
-    is_correct = BooleanField(default=False)
+    is_correct = StringField(required=True) 
 
 class Question(Document):
     """Simplified quiz question."""
@@ -23,7 +23,7 @@ class UserAnswer(EmbeddedDocument):
     question = ReferenceField(Question)
     answer_text = StringField() # For recall questions
     chosen_choice_text = StringField() # For multiple-choice
-    is_correct = StringField()
+    is_correct = BooleanField()
 
 class QuizAttempt(Document):
     """Records a student's attempt at a specific quiz."""

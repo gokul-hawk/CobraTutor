@@ -6,4 +6,5 @@ urlpatterns = [
     
     path("get-hint/", views.get_hint),
     path("vis/", views.generate_visualization),
+    path("", views.CodeAgentView.as_view(), name="code_agent"),
 ]

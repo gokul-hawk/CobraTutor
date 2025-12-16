@@ -4,7 +4,7 @@ services:
   # The Django Backend Service
   frontend:
     build: ./frontend
-    container_name: cobra_frontend
+    container_name: cobra_frontend_1
     ports:
       - "5173:5173"
     volumes:
@@ -14,7 +14,7 @@ services:
       - backend
   backend:
     build: ./backend
-    container_name: cobra_backend
+    container_name: cobra_backend_1
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - ./backend:/app  # Mounts our local code into the container for live-reloading
@@ -29,7 +29,7 @@ services:
   # The MongoDB Database Service
   db:
     image: mongo:latest
-    container_name: cobra_mongo_db
+    container_name: cobra_mongo_db_1
     ports:
       - "27017:27017"
     volumes:
@@ -38,7 +38,7 @@ services:
   # The Neo4j Knowledge Graph Service
   graph_db:
     image: neo4j:latest
-    container_name: cobra_neo4j_db
+    container_name: cobra_neo4j_db_1
     ports:
       - "7474:7474" # For the Neo4j Browser UI
       - "7687:7687" # For the Bolt driver (how Django will connect)

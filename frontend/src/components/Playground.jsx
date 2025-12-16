@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import SandboxRenderer from './SandboxRenderer'; // renders HTML in iframe
-import CodeDisplay from './CodeDisplay'; // shows generated HTML code
+import SandboxRenderer from './SandboxRenderer';
+import CodeDisplay from './CodeDisplay';
 
 const Playground = () => {
   const [prompt, setPrompt] = useState(
@@ -35,7 +35,6 @@ const Playground = () => {
       });
 
       const data = await res.json();
-      console.log('Response data:', data);
       if (res.ok && data.code) {
         setVisualizationCode(data.code);
       } else {
@@ -49,34 +48,36 @@ const Playground = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8 sm:p-12 font-sans">
-      <div className="max-w-6xl mx-auto">
+    // ✅ Full viewport width
+    <div className="min-h-screen w-screen bg-gray-100 p-4 sm:p-6 md:p-8 font-sans">
+      {/* ✅ Removed max-w-6xl — now full width */}
+      <div className="w-full">
         {/* Header */}
-        <header className="text-center mb-10">
-          <h1 className="text-5xl font-extrabold text-indigo-800 tracking-tight">
+        <header className="text-center mb-8 md:mb-12 px-2">
+          <h1 className="text-4xl md:text-5xl font-extrabold text-indigo-800 tracking-tight">
             AI Visualization Playground
           </h1>
-          <p className="mt-3 text-lg text-gray-600">
+          <p className="mt-3 text-lg md:text-xl text-gray-600 px-2">
             Generate interactive <span className="font-semibold text-indigo-600">HTML + TailwindCSS</span> visualizations for algorithms or logic flows.
           </p>
         </header>
 
-        {/* Input Area */}
-        <div className="bg-white p-6 rounded-2xl shadow-xl border border-indigo-100">
-          <h2 className="text-2xl font-bold text-indigo-700 mb-4">Describe Your Visualization</h2>
+        {/* Input Area — full width with max-w for readability */}
+        <div className="bg-white p-5 md:p-6 rounded-2xl shadow-xl border border-indigo-100 max-w-4xl mx-auto">
+          <h2 className="text-xl md:text-2xl font-bold text-indigo-700 mb-4">Describe Your Visualization</h2>
           <textarea
-            className="w-full p-4 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 h-28 resize-none"
+            className="w-full p-4 border  border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-white h-28 md:h-32 resize-none"
             placeholder="E.g., Show how bubble sort swaps adjacent elements with animations..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             disabled={isLoading}
           />
 
-          <div className="flex flex-col sm:flex-row justify-between items-center mt-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center mt-4 gap-3">
             <button
               onClick={handleVisualize}
               disabled={isLoading}
-              className={`px-8 py-3 w-full sm:w-auto font-semibold text-white rounded-full shadow-lg transition duration-300 ${
+              className={`px-6 py-3 w-full sm:w-auto font-semibold text-white rounded-xl shadow-md transition duration-300 ${
                 isLoading
                   ? 'bg-indigo-400 cursor-not-allowed'
                   : 'bg-indigo-600 hover:bg-indigo-700 hover:scale-[1.02] active:scale-[0.98]'
@@ -104,7 +105,7 @@ const Playground = () => {
               )}
             </button>
 
-            <div className="text-sm text-gray-500 mt-4 sm:mt-0 sm:ml-4">
+            <div className="text-sm text-gray-500 text-center sm:text-left">
               Try:
               {problemExamples.map((ex, index) => (
                 <span
@@ -125,11 +126,16 @@ const Playground = () => {
           )}
         </div>
 
-        {/* Output */}
-        <SandboxRenderer code={visualizationCode} isLoading={isLoading} />
-        <CodeDisplay code={visualizationCode} />
+        {/* Output — FULL WIDTH */}
+        <div className="mt-8 w-full px-2">
+          <SandboxRenderer code={visualizationCode} isLoading={isLoading} />
+        </div>
 
-        <footer className="mt-16 text-center text-sm text-gray-500 border-t pt-4">
+        <div className="mt-8 w-full px-2">
+          <CodeDisplay code={visualizationCode} />
+        </div>
+
+        <footer className="mt-16 text-center text-sm text-gray-500 border-t pt-6 pb-8 px-2">
           <p>Powered by AI-generated HTML + Tailwind visualizations.</p>
         </footer>
       </div>

@@ -1,0 +1,119 @@
+.tutor-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  background-color: #1a1a1a;
+  color: #f1f1f1;
+  overflow: hidden;
+}
+
+/* Left: Chat section (70%) */
+.chat-section {
+  flex: 0 0 70%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  box-sizing: border-box;
+  border-right: 1px solid #333;
+}
+
+.center-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.chat-window {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding-right: 15px;
+}
+
+.chat-message {
+  margin-bottom: 15px;
+  max-width: 80%;
+}
+
+.chat-message p {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  display: inline-block;
+}
+
+.chat-message.bot {
+  align-self: flex-start;
+}
+
+.chat-message.bot p {
+  background-color: #333;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-message.user p {
+  background-color: var(--accent-color, #4fc3f7);
+  color: #111;
+}
+
+.chat-input-form {
+  display: flex;
+  margin-top: 15px;
+  border-top: 1px solid var(--border-color, #444);
+  padding-top: 15px;
+}
+
+.chat-input-form input {
+  flex-grow: 1;
+  padding: 12px;
+  background-color: #333;
+  border: 1px solid var(--border-color, #444);
+  color: var(--text-color, #f1f1f1);
+  border-radius: 5px;
+  font-size: 1em;
+}
+
+.chat-input-form button {
+  background-color: var(--accent-color, #4fc3f7);
+  color: #111;
+  border: none;
+  padding: 0 20px;
+  margin-left: 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1em;
+  font-weight: bold;
+}
+
+/* Right: Context panel (30%) */
+.context-panel {
+  flex: 0 0 30%;
+  background-color: #111;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.context-panel h3 {
+  margin-top: 0;
+  color: #4fc3f7;
+  border-bottom: 1px solid #333;
+  padding-bottom: 5px;
+}
+
+.context-panel ul {
+  padding-left: 20px;
+}
+
+.notes-box {
+  background-color: #222;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}

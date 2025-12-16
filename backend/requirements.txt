@@ -9,3 +9,8 @@ Werkzeug
 google-generativeai
 django-cors-headers
 google-generativeai
+langchain>=0.2.12
+langchain-core>=0.2.20
+langchain-community
+langchain-google-genai
+groq

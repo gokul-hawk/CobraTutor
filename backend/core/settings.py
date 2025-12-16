@@ -19,14 +19,17 @@ import google.generativeai as genai
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Groq Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
-NEO4J_URI = "bolt://127.0.0.1:7687"
+NEO4J_URI = "bolt://graph_db:7687"
 NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = "datastruct"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -50,6 +53,7 @@ INSTALLED_APPS = [
     'knowledge_graph',
     'quizzes',
     'Code',
+    'chatbot',
 ]
 
 MIDDLEWARE = [
@@ -159,3 +163,16 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+JWT_ACCESS_TOKEN_LIFETIME = 60  # in minutes
+JWT_REFRESH_TOKEN_LIFETIME = 7
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),   # ⏰ Access token valid for 1 hour
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),   # 🔁 Refresh token valid for 1 day (optional)
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
+
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}

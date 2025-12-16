@@ -9,5 +9,6 @@ urlpatterns = [
     path('api/', include('users.urls')),  # <-- Included only ONCE
     path('api/kg/', include('knowledge_graph.urls')),
     path('api/quizzes/', include('quizzes.urls')),
-    path('api/code/', include('Code.urls')),  
+    path('api/code/', include('Code.urls')),
+    path('api/chat/', include('chatbot.urls')),
 ]

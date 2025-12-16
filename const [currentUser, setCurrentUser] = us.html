@@ -1,0 +1,61 @@
+const [currentUser, setCurrentUser] = useState(undefined);
+
+    useEffect(() => {
+        const user = authService.getCurrentUser();
+        if (user) {
+            setCurrentUser(user);
+        }
+    }, []);
+
+    const handleLogout = () => {
+        authService.logout();
+        setCurrentUser(undefined);
+    };
+
+    return (
+        <Router>
+            <div>
+                <nav>
+                    <Link to="/">Home</Link>
+                    <ul>
+                        {currentUser ? (
+                            <>
+                                <li>
+                                    <Link to="/dashboard">Dashboard</Link>
+                                </li>
+                                <li>
+                                    <a href="/login" onClick={handleLogout}>
+                                        Logout
+                                    </a>
+                                </li>
+                            </>
+                        ) : (
+                            <>
+                                <li>
+                                    <Link to="/login">Login</Link>
+                                </li>
+                                <li>
+                                    <Link to="/register">Register</Link>
+                                </li>
+                            </>
+                        )}
+                    </ul>
+                </nav>
+
+                <div className="container">
+                    <Routes>
+                        <Route path="/" element={<h1>Welcome to Cobra Tutor</h1>} />
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/register" element={<Register />} />
+                        <Route
+                            path="/dashboard"
+                            element={
+                                <PrivateRoute>
+                                    <Dashboard />
+                                </PrivateRoute>
+                            }
+                        />
+                    </Routes>
+                </div>
+            </div>
+        </Router>

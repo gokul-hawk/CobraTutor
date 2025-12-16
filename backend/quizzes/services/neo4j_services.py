@@ -1,35 +1,43 @@
+# quiz/services/neo4j_service.py
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, AuthError
 from django.conf import settings
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Neo4jService:
     def __init__(self, database=None):
-        """
-        database: Optional[str] → specify Neo4j database name. 
-        If None, uses default database.
-        """
         self.driver = GraphDatabase.driver(
             settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+            auth=(settings.NEO4J_USER, os.getenv('NEO4J_PASSWORD'))
         )
-        self.database = "dsa"  # e.g., "concepts_db"
+        self.database = database or "neo4j"
 
     def close(self):
         self.driver.close()
 
-    def get_direct_prerequisites(self, concept_name):
+    def get_direct_prerequisites(self, concept_name: str):
         query = """
-        MATCH (c:Concept {name:$concept})-[:REQUIRES]->(p)
+        MATCH (c:Concept {name: $concept})-[:REQUIRES]->(p:Concept)
         RETURN p.name AS prerequisite
         """
-        with self.driver.session(database=self.database) as session:
-            result = session.run(query, concept=concept_name)
-            return [record["prerequisite"] for record in result]
+        try:
+            with self.driver.session(database=self.database) as session:
+                result = session.run(query, concept=concept_name)
+                return [record["prerequisite"] for record in result]
+        except (ServiceUnavailable, AuthError) as e:
+            raise Exception(f"Neo4j connection error: {e}")
 
-    def get_all_prerequisites(self, concept_name):
+    def get_all_prerequisites(self, concept_name: str):
         query = """
-        MATCH (c:Concept {name:$concept})-[:REQUIRES*]->(p)
+        MATCH (c:Concept {name: $concept})-[:REQUIRES*]->(p:Concept)
         RETURN DISTINCT p.name AS prerequisite
         """
-        with self.driver.session(database=self.database) as session:
-            result = session.run(query, concept=concept_name)
-            return [record["prerequisite"] for record in result]
+        try:
+            with self.driver.session(database=self.database) as session:
+                result = session.run(query, concept=concept_name)
+                return [record["prerequisite"] for record in result]
+        except (ServiceUnavailable, AuthError) as e:
+            raise Exception(f"Neo4j connection error: {e}")

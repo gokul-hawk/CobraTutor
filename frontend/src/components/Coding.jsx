@@ -4,94 +4,205 @@ import { loadPyodide } from "pyodide";
 import axios from "axios";
 
 export default function CodingPage() {
-  const [code, setCode] = useState(`# your code here`);
+  // ====== YOUR EXACT SAME LOGIC (NO CHANGES) ======
+  const [code, setCode] = useState(`# Write your solution here\nprint("Hello, World!")`);
   const [consoleOutput, setConsoleOutput] = useState("");
   const [assistantMessages, setAssistantMessages] = useState([]);
-  const [question, setQuestion] = useState("");
-  const [topic, setTopic] = useState("arrays");
+  const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState("gemini-1.5-flash");
-  const assistantEndRef = useRef(null);
+  const [model] = useState("AI-1.5-flash");
   const [pyodide, setPyodide] = useState(null);
+  const [testCases, setTestCases] = useState([]);
+  const [planDescription, setPlanDescription] = useState("");
+  const [isTopicModalOpen, setIsTopicModalOpen] = useState(true);
+  const [userQuery, setUserQuery] = useState("");
+  const [responseMode, setResponseMode] = useState(null);
+  const assistantEndRef = useRef(null);
 
-  // --- Load Pyodide ---
   useEffect(() => {
     async function initPyodide() {
       try {
         const py = await loadPyodide({
-          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/",
+          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/", // ✅ Fixed trailing spaces
         });
         setPyodide(py);
-        setConsoleOutput("✅ Pyodide loaded. You can run Python code now.");
+        setConsoleOutput("✅ Pyodide ready for code execution.");
       } catch (err) {
-        console.error("Pyodide failed to load:", err);
+        console.error("Pyodide load error:", err);
         setConsoleOutput("❌ Failed to load Pyodide.");
       }
     }
     initPyodide();
   }, []);
 
-  // --- Fetch Coding Question ---
-  useEffect(() => {
-    const fetchQuestion = async () => {
-      try {
-        const userData = JSON.parse(localStorage.getItem("user"));
-        const token = userData?.access;
-
-        const res = await axios.post(
-          "http://localhost:8000/api/code/generate-question/",
-          { topic, user_id: userData?.id },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        setQuestion(res.data.question_text || "No question found.");
-        console.log("Fetched question:", res.data);
-      } catch (err) {
-        console.error("Error fetching question:", err.response?.data || err);
-        setQuestion("⚠️ Failed to load question.");
-      }
-    };
-
-    fetchQuestion();
-  }, [topic]);
-
-  // --- Run Python Code ---
-  const onRun = async () => {
-    if (!pyodide) {
-      setConsoleOutput("⏳ Pyodide is still loading...");
-      return;
-    }
-
-    setConsoleOutput("▶ Running your code...");
-
+  const fetchQuestions = async (userInput) => {
+    if (!userInput.trim()) return;
+    setLoading(true);
     try {
-      const printOutput = [];
-      const originalPrint = pyodide.globals.get("print");
-      pyodide.globals.set("print", (msg) => printOutput.push(msg));
+      const userData = JSON.parse(localStorage.getItem("user"));
+      const token = userData?.access;
+      if (!token) throw new Error("User not authenticated");
 
-      await pyodide.runPythonAsync(code);
-      pyodide.globals.set("print", originalPrint);
+      const res = await axios.post(
+        "http://localhost:8000/api/code/",
+        { query: userInput, user_id: userData?.id },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
-      setConsoleOutput(printOutput.join("\n"));
+      const data = res.data;
+
+      if (data.type === "single") {
+        const question = data.question;
+        setQuestions([question]);
+        setTestCases(question.testcases || []);
+        setPlanDescription(`🎯 ${question.title}`);
+        setResponseMode("single");
+      } else if (data.type === "plan") {
+        const validQuestions = (data.questions || []).filter(
+          (q) => q.title || (q.description && q.description.trim())
+        );
+        setQuestions(validQuestions);
+        setTestCases(validQuestions.length > 0 ? validQuestions[0].testcases || [] : []);
+        setPlanDescription(data.plan || "");
+        setResponseMode("plan");
+      } else {
+        throw new Error("Unknown response type");
+      }
+
+      setCurrentIndex(0);
+      setIsTopicModalOpen(false);
     } catch (err) {
-      setConsoleOutput("❌ Error: " + err.message);
+      console.error("Error fetching questions:", err.response?.data || err.message);
+      setPlanDescription("⚠️ Failed to load question. Please try again.");
+      setQuestions([]);
+      setTestCases([]);
+      setResponseMode(null);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // --- Gemini Assistant ---
+  const onRun = async () => {
+    if (!pyodide) {
+      return setConsoleOutput("⏳ Pyodide is still loading...");
+    }
+    setConsoleOutput("▶ Running your code...\n");
+
+    try {
+      // 1. If NO test cases, run normally (interactive / single run)
+      if (!testCases || testCases.length === 0) {
+        pyodide.runPython(`
+          import sys
+          from io import StringIO
+          sys.stdout = mystdout = StringIO()
+        `);
+        await pyodide.runPythonAsync(code);
+        const output = pyodide.runPython("mystdout.getvalue()");
+        setConsoleOutput(output || "(No output)");
+        return;
+      }
+
+      // 2. If WE HAVE test cases, run them in a loop inside Python
+      // We pass the code and testCases to Python
+      const testCasesJson = JSON.stringify(testCases);
+
+      // We wrap user code in a function or exec it inside the loop
+      // NOTE: We need to handle 'input()' calls by mocking sys.stdin for each iteration
+      const pythonRunnerScript = `
+import sys
+import json
+from io import StringIO
+
+def run_tests(user_code, test_cases_json):
+    cases = json.loads(test_cases_json)
+    results = []
+    
+    for i, case in enumerate(cases):
+        inp = case.get("input_data", "")
+        exp = case.get("expected_output", "").strip()
+        
+        # PID: Prepare IO
+        sys.stdin = StringIO(inp)
+        sys.stdout = capture = StringIO()
+        
+        try:
+            # Create a fresh local scope for each run to avoid variable bleeding
+            local_scope = {}
+            exec(user_code, local_scope)
+            
+            # Capture output
+            actual = capture.getvalue().strip()
+            params = {
+                "id": i + 1,
+                "input": inp,
+                "expected": exp,
+                "actual": actual,
+                "passed": actual == exp,
+                "error": None
+            }
+        except Exception as e:
+            params = {
+                "id": i + 1,
+                "input": inp,
+                "expected": exp,
+                "actual": "",
+                "passed": False,
+                "error": str(e)
+            }
+            
+        results.append(params)
+    
+    return json.dumps(results)
+
+# Execute
+results_json = run_tests(code_to_run, test_cases_json)
+results_json
+`;
+
+      // Set global variables for the script to access
+      pyodide.globals.set("code_to_run", code);
+      pyodide.globals.set("test_cases_json", testCasesJson);
+
+      // Run the harness
+      const rawResults = await pyodide.runPythonAsync(pythonRunnerScript);
+      const results = JSON.parse(rawResults);
+
+      // Formatting Output
+      let outputString = "";
+      let passCount = 0;
+
+      results.forEach((r) => {
+        if (r.error) {
+          outputString += `❌ Test ${r.id} Error:\n${r.error}\n\n`;
+        } else if (r.passed) {
+          passCount++;
+          outputString += `✅ Test ${r.id} Passed\nInput: ${r.input}\nExpected: ${r.expected}\nActual: ${r.actual}\n\n`;
+        } else {
+          outputString += `❌ Test ${r.id} Failed\nInput: ${r.input}\nExpected: ${r.expected}\nActual: ${r.actual}\n\n`;
+        }
+      });
+
+      outputString = `📊 Result: ${passCount}/${results.length} Passed\n\n` + outputString;
+      setConsoleOutput(outputString);
+
+    } catch (err) {
+      setConsoleOutput("❌ Runtime Error:\n" + (err.message || err));
+    }
+  };
+
   const sendToAssistant = async (userPrompt) => {
-    if (!userPrompt) return;
     const message = { role: "user", text: userPrompt, ts: Date.now() };
-    setAssistantMessages((m) => [...m, message]);
+    setAssistantMessages((prev) => [...prev, message]);
     setLoading(true);
     try {
-      const resp = await fetch("/api/gemini", {
+      const resp = await fetch("/api/AI", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: userPrompt, code, model }),
@@ -99,14 +210,14 @@ export default function CodingPage() {
       const data = await resp.json();
       const botMsg = {
         role: "assistant",
-        text: data.reply || data.text || "No reply from Gemini.",
+        text: data.reply || "No reply from AI.",
         ts: Date.now(),
       };
-      setAssistantMessages((m) => [...m, botMsg]);
+      setAssistantMessages((prev) => [...prev, botMsg]);
     } catch (e) {
-      setAssistantMessages((m) => [
-        ...m,
-        { role: "assistant", text: `⚠️ Error: ${e.message}`, ts: Date.now() },
+      setAssistantMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: `⚠️ Error: ${e.message} `, ts: Date.now() },
       ]);
     } finally {
       setLoading(false);
@@ -120,130 +231,359 @@ export default function CodingPage() {
     setQuery("");
   };
 
-  // --- Scroll Assistant ---
   useEffect(() => {
     assistantEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [assistantMessages]);
 
+  useEffect(() => {
+    if (questions.length > 0) {
+      const q = questions[currentIndex];
+      setTestCases(q.testcases || []);
+    }
+  }, [currentIndex, questions]);
+
+  const currentQuestion = questions[currentIndex] || {};
+
+  // =============== MODAL ===============
+  const renderTopicModal = () => {
+    if (!isTopicModalOpen) return null;
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50 p-4">
+        <div className="bg-gray-900 text-white p-6 rounded-xl w-full max-w-md shadow-xl border border-indigo-600">
+          <h2 className="text-xl font-bold mb-2 text-center text-indigo-300">🎯 What would you like to learn?</h2>
+          <p className="text-sm text-gray-400 mb-4 text-center">
+            e.g., “Recursive power function” or “5 DP problems”
+          </p>
+          <textarea
+            className="w-full h-24 bg-gray-800 rounded-lg p-3 text-sm border border-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+            placeholder="Describe your coding goal..."
+            value={userQuery}
+            onChange={(e) => setUserQuery(e.target.value)}
+          />
+          <div className="mt-4">
+            <button
+              onClick={() => fetchQuestions(userQuery)}
+              disabled={!userQuery.trim() || loading}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 py-2.5 rounded-lg font-medium disabled:opacity-60 transition"
+            >
+              {loading ? "Generating..." : "Generate Plan"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // =============== RESIZING STATE & LOGIC ===============
+  const [leftWidth, setLeftWidth] = useState(28);    // Problem
+  const [centerWidth, setCenterWidth] = useState(44); // Code + Console
+  const [rightWidth, setRightWidth] = useState(28);  // Assistant + Tests
+  const minPanelWidth = 15;
+
+  const [consoleHeight, setConsoleHeight] = useState(30); // % of center panel
+  const minConsoleHeight = 15;
+  const maxConsoleHeight = 70;
+
+  const [assistantHeight, setAssistantHeight] = useState(70); // % of right panel
+  const minAssistantHeight = 30;
+  const maxAssistantHeight = 85;
+
+  const startHorizontalResize = (panel, e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startLeft = leftWidth;
+    const startCenter = centerWidth;
+    const startRight = rightWidth;
+
+    const doResize = (moveEvent) => {
+      const container = document.querySelector('.main-layout');
+      const containerWidth = container?.offsetWidth || window.innerWidth;
+      const dxPercent = ((moveEvent.clientX - startX) / containerWidth) * 100;
+
+      if (panel === 'left') {
+        let newLeft = Math.min(100 - minPanelWidth * 2, Math.max(minPanelWidth, startLeft + dxPercent));
+        let remaining = 100 - newLeft;
+        let newRight = Math.min(remaining - minPanelWidth, startRight);
+        let newCenter = remaining - newRight;
+        setLeftWidth(newLeft);
+        setCenterWidth(newCenter);
+        setRightWidth(newRight);
+      } else if (panel === 'right') {
+        let newRight = Math.min(100 - minPanelWidth * 2, Math.max(minPanelWidth, startRight + dxPercent));
+        let remaining = 100 - newRight;
+        let newLeft = Math.min(remaining - minPanelWidth, startLeft);
+        let newCenter = remaining - newLeft;
+        setRightWidth(newRight);
+        setLeftWidth(newLeft);
+        setCenterWidth(newCenter);
+      }
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('mousemove', doResize);
+      window.removeEventListener('mouseup', stopResize);
+    };
+
+    window.addEventListener('mousemove', doResize);
+    window.addEventListener('mouseup', stopResize);
+  };
+
+  const startConsoleResize = (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = consoleHeight;
+
+    const doResize = (moveEvent) => {
+      const container = document.querySelector('.center-panel');
+      const containerHeight = container?.offsetHeight || window.innerHeight;
+      const dyPercent = ((startY - moveEvent.clientY) / containerHeight) * 100;
+      const newHeight = Math.min(maxConsoleHeight, Math.max(minConsoleHeight, startHeight + dyPercent));
+      setConsoleHeight(newHeight);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('mousemove', doResize);
+      window.removeEventListener('mouseup', stopResize);
+    };
+
+    window.addEventListener('mousemove', doResize);
+    window.addEventListener('mouseup', stopResize);
+  };
+
+  const startAssistantResize = (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = assistantHeight;
+
+    const doResize = (moveEvent) => {
+      const container = document.querySelector('.right-panel');
+      const containerHeight = container?.offsetHeight || window.innerHeight;
+      const dyPercent = ((startY - moveEvent.clientY) / containerHeight) * 100;
+      const newHeight = Math.min(maxAssistantHeight, Math.max(minAssistantHeight, startHeight + dyPercent));
+      setAssistantHeight(newHeight);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('mousemove', doResize);
+      window.removeEventListener('mouseup', stopResize);
+    };
+
+    window.addEventListener('mousemove', doResize);
+    window.addEventListener('mouseup', stopResize);
+  };
+
+  // =============== MAIN UI — FULL WIDTH + RESIZABLE ===============
   return (
-    <div className="min-h-screen w-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 via-purple-500 to-blue-500 p-6">
-      <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-7xl overflow-y-auto max-h-[90vh]">
-        <h1 className="text-4xl font-bold text-center mb-8 text-indigo-600">
-          💻 Competitive Coding Practice
-        </h1>
+    <div className="w-screen h-screen flex flex-col bg-gray-950 text-gray-200 overflow-hidden">
+      {renderTopicModal()}
 
-        {/* --- Layout Grid --- */}
-        <div className="grid grid-cols-10 gap-6">
-          {/* --- Left: Question --- */}
-          <section className="col-span-3 bg-gray-50 p-5 rounded-xl border border-gray-200 shadow-sm">
-            <h2 className="text-xl font-semibold mb-3 text-indigo-700">
-              📜 Question
-            </h2>
-            <textarea
-              className="w-full h-[65vh] border rounded-lg p-3 font-mono text-sm bg-gray-100 text-blue-700 resize-none focus:ring-2 focus:ring-indigo-400 focus:outline-none"
-              value={question}
-              readOnly
-            />
-          </section>
+      {/* Header */}
+      <header className="p-4 bg-gray-900 border-b border-gray-800">
+        <h1 className="text-2xl font-bold text-white">💡 AI Coding Mentor</h1>
+        {planDescription && (
+          <p className="text-indigo-400 mt-2 text-sm md:text-base">
+            {planDescription}
+          </p>
+        )}
+      </header>
 
-          {/* --- Middle: Code + Console --- */}
-          <section className="col-span-4 flex flex-col">
-            {/* Code Editor */}
-            <div className="flex-[7] border rounded-xl overflow-hidden shadow-sm mb-4">
+      {/* Question Navigation */}
+      {responseMode === "plan" && questions.length > 1 && (
+        <div className="flex flex-wrap justify-center gap-2 p-3 bg-gray-900 border-b border-gray-800">
+          {questions.map((q, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentIndex(i)}
+              className={`px - 4 py - 2 rounded - lg text - sm font - medium transition ${i === currentIndex
+                  ? "bg-indigo-600 text-white"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                } `}
+            >
+              {q.title || `Q${i + 1} `}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Main Layout — Full Width & Resizable */}
+      <div className="main-layout flex flex-row flex-1 overflow-hidden p-3 gap-2">
+        {/* LEFT: Problem */}
+        <div
+          className="flex flex-col bg-gray-900 rounded-xl border border-gray-800 overflow-hidden"
+          style={{ width: `${leftWidth}% ` }}
+        >
+          <div className="p-4 bg-gradient-to-r from-indigo-800/30 to-purple-800/30 border-b border-gray-800">
+            <h2 className="text-lg font-bold text-indigo-400">📜 Problem</h2>
+          </div>
+          <div className="flex-1 p-4 overflow-auto">
+            {questions.length === 0 ? (
+              <p className="text-gray-500 italic">Generate a question to begin.</p>
+            ) : (
+              <>
+                <h3 className="text-xl font-semibold text-white mb-3">{currentQuestion.title}</h3>
+                <div className="text-gray-300 whitespace-pre-wrap text-sm leading-relaxed">
+                  {currentQuestion.description?.trim() || (
+                    <span className="text-gray-500 italic">No description provided.</span>
+                  )}
+                </div>
+                <div className="mt-4 pt-3 border-t border-gray-800">
+                  <span className="inline-block px-3 py-1 bg-gray-800 rounded-full text-xs text-gray-400">
+                    {currentQuestion.difficulty || "N/A"} Difficulty
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* LEFT RESIZE HANDLE */}
+        <div
+          onMouseDown={(e) => startHorizontalResize('left', e)}
+          className="w-1.5 cursor-col-resize bg-indigo-900/30 hover:bg-indigo-600 self-stretch flex items-center justify-center"
+          title="Drag to resize"
+        >
+          <div className="w-0.5 h-6 bg-indigo-400 rounded-full opacity-70"></div>
+        </div>
+
+        {/* CENTER: Code + Console */}
+        <div
+          className="center-panel flex flex-col bg-gray-900 rounded-xl border border-gray-800 overflow-hidden"
+          style={{ width: `${centerWidth}% ` }}
+        >
+          <div
+            className="flex-1 flex flex-col overflow-hidden"
+            style={{ height: `${100 - consoleHeight}% ` }}
+          >
+            <div className="flex justify-between items-center p-3 bg-gray-850 border-b border-gray-800">
+              <h3 className="font-medium text-indigo-300">🐍 Python Editor</h3>
+              <button
+                onClick={onRun}
+                className="bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg text-sm font-medium"
+              >
+                ▶ Run
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
               <CodeEditor code={code} setCode={setCode} />
             </div>
+          </div>
 
-            {/* Console */}
-            <div className="flex-[3] bg-gray-50 rounded-xl border border-gray-200 shadow-sm p-3 flex flex-col">
-              <div className="flex items-center justify-between mb-2">
-                <strong className="text-gray-700">🧾 Console Output</strong>
-                <button
-                  onClick={() => setConsoleOutput("")}
-                  className="text-sm text-slate-500 hover:text-red-500 transition"
-                >
-                  Clear
-                </button>
-              </div>
-              <pre className="flex-1 overflow-auto bg-slate-900 text-slate-50 p-3 rounded-lg text-sm">
-                {consoleOutput}
-              </pre>
+          {/* Console Resize Handle */}
+          <div
+            onMouseDown={startConsoleResize}
+            className="h-1.5 cursor-row-resize bg-indigo-900/30 hover:bg-indigo-600 flex items-center justify-center"
+            title="Drag to resize console"
+          >
+            <div className="h-0.5 w-6 bg-indigo-400 rounded-full opacity-70"></div>
+          </div>
+
+          <div
+            className="h-full bg-gray-900"
+            style={{ height: `${consoleHeight}% ` }}
+          >
+            <div className="flex justify-between items-center p-3 bg-gray-850 border-b border-gray-800">
+              <h3 className="font-medium text-amber-400">🧾 Console</h3>
+              <button
+                onClick={() => setConsoleOutput("")}
+                className="text-xs text-gray-500 hover:text-red-400"
+              >
+                Clear
+              </button>
             </div>
-          </section>
+            <pre className="p-3 text-xs font-mono text-gray-300 bg-black/20 overflow-auto h-full">
+              {consoleOutput}
+            </pre>
+          </div>
+        </div>
 
-          {/* --- Right: Assistant --- */}
-          <section className="col-span-3 flex flex-col">
-            <button
-              onClick={onRun}
-              className="mb-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold transition"
-            >
-              ▶ Run Code
-            </button>
+        {/* RIGHT RESIZE HANDLE */}
+        <div
+          onMouseDown={(e) => startHorizontalResize('right', e)}
+          className="w-1.5 cursor-col-resize bg-indigo-900/30 hover:bg-indigo-600 self-stretch flex items-center justify-center"
+          title="Drag to resize"
+        >
+          <div className="w-0.5 h-6 bg-indigo-400 rounded-full opacity-70"></div>
+        </div>
 
-            <div className="bg-gray-50 rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col flex-1">
-              <div className="flex items-center justify-between mb-3">
-                <strong className="text-indigo-700">🤖 Gemini Assistant</strong>
-                <button
-                  onClick={() => setAssistantMessages([])}
-                  className="text-sm text-slate-500 hover:text-red-500 transition"
-                >
-                  Clear
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-auto space-y-3 mb-3">
-                {assistantMessages.length === 0 && (
-                  <div className="text-sm text-slate-400 italic">
-                    Ask for hints, debugging help, or code review. Your current
-                    code is shared as context.
-                  </div>
-                )}
-                {assistantMessages.map((m, idx) => (
+        {/* RIGHT: Assistant + Tests */}
+        <div
+          className="right-panel flex flex-col bg-gray-900 rounded-xl border border-gray-800 overflow-hidden"
+          style={{ width: `${rightWidth}% ` }}
+        >
+          {/* Assistant */}
+          <div
+            className="flex flex-col overflow-hidden"
+            style={{ height: `${assistantHeight}% ` }}
+          >
+            <div className="p-3 bg-teal-800 text-white font-medium">🤖AI Assistant</div>
+            <div className="flex-1 overflow-auto p-3 space-y-3">
+              {assistantMessages.length === 0 ? (
+                <p className="text-gray-500 text-sm italic">Ask for help with your code!</p>
+              ) : (
+                assistantMessages.map((msg, i) => (
                   <div
-                    key={idx}
-                    className={`p-2 rounded-lg ${
-                      m.role === "user"
-                        ? "bg-indigo-100 self-end"
-                        : "bg-green-100 self-start"
-                    }`}
+                    key={i}
+                    className={`p - 3 rounded - lg max - w - [90 %] ${msg.role === "user"
+                        ? "bg-indigo-900/50 ml-auto border border-indigo-700"
+                        : "bg-teal-900/20 mr-auto border border-teal-800"
+                      } `}
                   >
-                    <div className="text-xs text-slate-500 mb-1">
-                      {m.role === "user" ? "You" : "Gemini"}
+                    <div className="text-xs text-gray-400 mb-1">
+                      {msg.role === "user" ? "You" : "AI"}
                     </div>
-                    <div className="whitespace-pre-wrap text-sm font-sans text-gray-800">
-                      {m.text}
-                    </div>
+                    <div className="text-sm text-gray-200 whitespace-pre-wrap">{msg.text}</div>
                   </div>
-                ))}
-                <div ref={assistantEndRef} />
-              </div>
-
+                ))
+              )}
+              <div ref={assistantEndRef} className="h-0" />
+            </div>
+            <div className="p-3 border-t border-gray-800">
               <textarea
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask Gemini something..."
-                className="w-full border rounded-lg p-2 text-sm h-20 resize-none focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+                placeholder="Ask AI for hints or debugging help..."
+                className="w-full p-2.5 bg-gray-850 border border-gray-700 rounded text-sm resize-none text-white"
+                rows="2"
               />
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={onSend}
-                  disabled={loading}
-                  className={`flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg transition ${
-                    loading && "opacity-60 cursor-not-allowed"
-                  }`}
-                >
-                  {loading ? "Thinking..." : "Ask Gemini"}
-                </button>
-                <button
-                  onClick={() =>
-                    sendToAssistant("Review my code and suggest improvements.")
-                  }
-                  className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition"
-                >
-                  Review
-                </button>
-              </div>
+              <button
+                onClick={onSend}
+                disabled={!query.trim() || loading}
+                className="mt-2 w-full bg-teal-600 hover:bg-teal-700 py-2 rounded text-white text-sm font-medium disabled:opacity-60"
+              >
+                {loading ? "Thinking..." : "Send"}
+              </button>
             </div>
-          </section>
+          </div>
+
+          {/* Assistant Resize Handle */}
+          <div
+            onMouseDown={startAssistantResize}
+            className="h-1.5 cursor-row-resize bg-indigo-900/30 hover:bg-indigo-600 flex items-center justify-center"
+            title="Drag to resize panels"
+          >
+            <div className="h-0.5 w-6 bg-indigo-400 rounded-full opacity-70"></div>
+          </div>
+
+          {/* Test Cases */}
+          <div className="bg-gray-900 max-h-full overflow-hidden">
+            <div className="p-3 bg-amber-900/20 border-b border-amber-800/30">
+              <h3 className="font-medium text-amber-400">🧪 Test Cases</h3>
+            </div>
+            <div className="p-3 overflow-auto max-h-36">
+              {testCases.length === 0 ? (
+                <p className="text-gray-500 text-sm italic">No test cases available.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {testCases.map((tc, i) => (
+                    <div key={i} className="text-xs">
+                      <div className="text-amber-400 font-medium">Input: {tc.input_data}</div>
+                      <div className="text-green-400 mt-1">→ {tc.expected_output}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

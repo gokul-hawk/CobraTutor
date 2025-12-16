@@ -1,71 +1,48 @@
-import google.generativeai as genai
+# quiz/services/gemini_service.py
 import os
+# import google.generativeai as genai
+from chatbot.services.groq_service import GroqService
 import json
 import re
 
 class GeminiService:
     def __init__(self):
-        api=""
-        genai.configure(api_key=api)
-        self.model = genai.GenerativeModel("gemini-2.5-flash")
-    def generate_question1(self, topic: str, difficulty="medium"):
-        print(topic)
-        prompt = f"""
-        Generate {difficulty} multiple-choice question on the topics: {topic}.
-        only give the response in JSON format as
-        {{
-            "question": "string",
-            "options": ["A", "B", "C", "D"],
-            "correct_answer": "string"
-        }}
-        """
-        print(2)
-        response = self.model.generate_content(prompt)
-        raw_text = response.text.strip()
+        # Using Groq now, but keeping class name for compatibility
+        self.groq_service = GroqService()
 
-        # 🔧 Remove markdown code fences like ```json ... ```
-        clean_text = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
+    def generate_questions(self, topic: str, num_questions: int = 2):
+        prompt = f"""
+        You are an expert Python educator.
+        Generate exactly {num_questions} unique multiple-choice questions on the topic: "{topic}".
+        Difficulty: beginner to intermediate.
+
+        Each question must have exactly 4 options.
+        Provide output as a JSON array of objects with:
+        - "question": question text (string)
+        - "options": list of 4 strings
+        - "correct_answer": the exact correct option text (string)
+
+        Example:
+        [
+          {{
+            "question": "What is a stack?",
+            "options": ["LIFO", "FIFO", "Tree", "Graph"],
+            "correct_answer": "LIFO"
+          }}
+        ]
+        Only output valid JSON. No markdown.
+        """
 
         try:
-            question_data = json.loads(clean_text)
-            return question_data
-        except json.JSONDecodeError:
-            # fallback dummy question
-            return {
-                "question": "Error: Could not parse Gemini response",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "correct_answer": "Option A"
-            }
+            # response = self.model.generate_content(prompt)
+            # raw = response.text.strip()
+            raw = self.groq_service.generate_content(prompt).strip()
+            clean = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+            data = json.loads(clean)
 
-    def generate_questions(self, topic: str, difficulty=["medium"]):
-        print(topic)
-        prompt = f"""
-        Generate {difficulty} multiple-choice question on the topics: {topic}.
-        make 2 question for each topic.
-        only give the response in JSON format as
-        {{
-            "question": "string",
-            "options": ["A", "B", "C", "D"],
-            "correct_answer": "string"
-        }}
-        """
-        print(2)
-        response = self.model.generate_content(prompt)
-        raw_text = response.text.strip()
-
-        # 🔧 Remove markdown code fences like ```json ... ```
-        clean_text = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
-
-        try:
-            question_data = json.loads(clean_text)
-            return question_data
-        except json.JSONDecodeError:
-            # fallback dummy question
-            return {
-                "question": "Error: Could not parse Gemini response",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "correct_answer": "Option A"
-            }
-    def ask(self, prompt: str):
-        response = self.model.generate_content(prompt)
-        return response.text.strip()
+            if isinstance(data, dict):
+                data = [data]
+            return data[:num_questions]
+        except Exception as e:
+            print(f"Groq error for topic '{topic}': {e}")
+            return []
