@@ -11,4 +11,6 @@ urlpatterns = [
     path('api/quizzes/', include('quizzes.urls')),
     path('api/code/', include('Code.urls')),
     path('api/chat/', include('chatbot.urls')),
+    path('api/debugger/', include('debugger.urls')),
+    path('api/main-agent/', include('main_agent.urls')),
 ]

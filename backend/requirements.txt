@@ -1,7 +1,7 @@
 django
 djangorestframework
 djongo
-neomodel
+neomodel>=5.3.0
 djangorestframework-simplejwt
 python-dotenv
 mongoengine
@@ -9,8 +9,10 @@ Werkzeug
 google-generativeai
 django-cors-headers
 google-generativeai
-langchain>=0.2.12
-langchain-core>=0.2.20
-langchain-community
-langchain-google-genai
+langchain==0.2.12
+langchain-core==0.2.28
+langchain-community==0.2.11
+langchain-groq==0.1.9
 groq
+langgraph
+# Force Rebuild 1

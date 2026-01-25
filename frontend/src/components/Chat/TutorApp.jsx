@@ -1,30 +1,15 @@
-// TutorApp.jsx
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { BookOpen, BrainCircuit, FileText, Send, MonitorPlay, Moon, Sun, Copy, Check } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useNavigate } from 'react-router-dom';
+import { sendMessage, getWelcomeMessage } from "../../services/chatService";
 
 const DJANGO_BASE_URL = "http://127.0.0.1:8000/api";
 
 // ─────────────── API FUNCTIONS ───────────────
-const callDjangoApi = async (data) => {
-  const tokenData = localStorage.getItem("user");
-  const token = tokenData ? JSON.parse(tokenData).access : null;
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const url = `${DJANGO_BASE_URL}/chat/`;
-  try {
-    const response = await axios.post(url, data, { headers });
-    return response.data;
-  } catch (error) {
-    if (error.response) {
-      throw new Error(error.response.data.error || error.response.statusText);
-    } else {
-      throw new Error("Failed to connect to tutor backend.");
-    }
-  }
-};
+// callDjangoApi removed - using chatService.sendMessage instead
 
 const callSummaryApi = async (messages) => {
   const tokenData = localStorage.getItem("user");
@@ -371,6 +356,7 @@ const ChatArea = ({ messages, setMessages }) => {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatEndRef = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -382,8 +368,18 @@ const ChatArea = ({ messages, setMessages }) => {
     setLoading(true);
 
     try {
-      const data = await callDjangoApi({ message: userMsg });
-      // Clarifying questions might be marked by backend
+      const data = await sendMessage(userMsg);
+      // Process Action
+      if (data.action && data.action.type === 'SWITCH_TAB') {
+        setTimeout(() => {
+          // Ask user or auto switch? Premium UI suggests auto or toast.
+          // We will auto switch after small delay
+          const targetView = data.action.view; // 'code' or 'debugger'
+          if (targetView === 'code') navigate('/coding'); // Correct route
+          if (targetView === 'debugger') navigate('/debugger');
+        }, 1500);
+      }
+
       const isClarifying = data.awaiting_reply;
       setMessages(prev => [...prev, { sender: "bot", text: data.reply, meta: { clarifying: isClarifying } }]);
     } catch (err) {
@@ -408,8 +404,8 @@ const ChatArea = ({ messages, setMessages }) => {
           <div key={i} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"} animate-slide-up group`}>
             {/* Avatar placeholder if needed, for now just bubble */}
             <div className={`max-w-[85%] lg:max-w-[75%] rounded-2xl p-6 shadow-sm relative overflow-hidden ${msg.sender === "user"
-                ? "bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-br-sm shadow-indigo-500/10"
-                : "bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-sm shadow-slate-200/50 dark:shadow-none"
+              ? "bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-br-sm shadow-indigo-500/10"
+              : "bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-sm shadow-slate-200/50 dark:shadow-none"
               } ${msg.sender === "bot" && msg.meta?.clarifying ? "ring-2 ring-indigo-400/50 dark:ring-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-900/10" : ""}`}>
 
               {/* Content */}
@@ -507,10 +503,21 @@ const Sidebar = ({ activeTab, setActiveTab, darkMode, toggleTheme }) => {
 // ─────────────── MAIN LAYOUT ───────────────
 export default function TutorApp() {
   const [activeTab, setActiveTab] = useState("concepts");
-  const [messages, setMessages] = useState([{ sender: "bot", text: "👋 Hi! I'm your AI Tutor. What shall we learn today?" }]);
+  const [messages, setMessages] = useState([]);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
 
   useEffect(() => {
+    // Fetch personalized welcome
+    const fetchWelcome = async () => {
+      const welcomeData = await getWelcomeMessage();
+      if (welcomeData && welcomeData.message) {
+        setMessages([{ sender: "bot", text: welcomeData.message }]);
+      } else {
+        setMessages([{ sender: "bot", text: "👋 Hi! I'm your AI Tutor. What shall we learn today?" }]);
+      }
+    };
+    fetchWelcome();
+
     if (darkMode) document.documentElement.classList.add("dark");
     else document.documentElement.classList.remove("dark");
     localStorage.setItem("theme", darkMode ? "dark" : "light");

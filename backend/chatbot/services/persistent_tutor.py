@@ -66,10 +66,11 @@ def analyze_input(user_input, current_topic, current_subtopic, last_bot_question
     - "ANSWER": If they are answering the question (correctly or incorrectly).
     - "DOUBT": If they are asking for help/explanation or saying "I don't know".
     - "SWITCH": If they clearly ask to learn something else (e.g. "teach me java", "stop").
+    - "SKIP": If the user wants to skip the current question or topic (e.g. "skip", "next", "I know this").
 
     Output JSON:
     {{
-      "intent": "ANSWER" | "DOUBT" | "SWITCH",
+      "intent": "ANSWER" | "DOUBT" | "SWITCH" | "SKIP",
       "is_correct": boolean (only if ANSWER, true/false),
       "analysis": "Short reason",
       "reply": "If correct ANSWER: say 'Correct!' and brief check. If incorrect ANSWER: explain why. If DOUBT: answer it clearly."
@@ -80,7 +81,9 @@ def analyze_input(user_input, current_topic, current_subtopic, last_bot_question
 def handle_persistent_chat(user, message):
     session = get_or_create_session(user)
     
-    # 1. HANDLE SWITCH CONFIRMATION
+
+
+    # 1. HANDLE SWITCH CONFIRMATION (Legacy internal switch)
     if session.status == "AWAITING_SWITCH_CONFIRMATION":
         if any(w in message.lower() for w in ["yes", "yeah", "ok", "sure", "yup"]):
             new_topic = session.switch_topic_buffer
@@ -94,17 +97,20 @@ def handle_persistent_chat(user, message):
             content = teach_content(session.subtopics[0])
             session.status = "AWAITING_ANSWER"
             session.save()
-            return {"reply": f"Ok! Switching to **{new_topic}**.\n\n{content}", "awaiting_reply": True}
+            return {"reply": f"Ok! Switching to **{new_topic}**.\n\n{content}", "awaiting_reply": True, "is_complete": False}
         else:
             session.status = "AWAITING_ANSWER" # Revert to teaching
             session.switch_topic_buffer = None
             session.save()
-            return {"reply": "Cancelled switch. Let's continue with the current topic. What is your answer?", "awaiting_reply": True}
+            return {"reply": "Cancelled switch. Let's continue with the current topic. What is your answer?", "awaiting_reply": True, "is_complete": False}
 
     # 2. NEW SESSION / IDLE
     if session.status == "IDLE" or not session.current_topic:
-        session.current_topic = message
-        session.subtopics = generate_subtopics_python(message)
+        # IDLE: treat message as new topic request
+        topic = message
+        session.current_topic = topic
+        session.subtopics = generate_subtopics_python(topic)
+             
         session.current_index = 0
         session.status = "TEACHING"
         session.save()
@@ -112,37 +118,66 @@ def handle_persistent_chat(user, message):
         content = teach_content(session.subtopics[0])
         session.status = "AWAITING_ANSWER"
         session.save()
-        return {"reply": f"Let's learn Python **{message}**!\n\n{content}", "awaiting_reply": True}
+        
+        # Format subtopics list
+        subtopics_list = "\n".join([f"{i+1}. {sub}" for i, sub in enumerate(session.subtopics)])
+        
+        return {
+            "reply": f"Let's learn **{topic}**! Here is the plan:\n\n{subtopics_list}\n\n---\n\n{content}", 
+            "awaiting_reply": True, 
+            "is_complete": False
+        }
 
     # 3. TEACHING FLOW
+    # Check bounds
+    if session.current_index >= len(session.subtopics):
+        # Already done?
+        return {"reply": "Topic completed.", "awaiting_reply": False, "is_complete": True}
+
     current_sub = session.subtopics[session.current_index]
     
     # Analyze Intent
     analysis = analyze_input(message, session.current_topic, current_sub)
     if not analysis:
-        return {"reply": "I didn't catch that. Could you repeat?", "awaiting_reply": True}
+        return {"reply": "I didn't catch that. Could you repeat?", "awaiting_reply": True, "is_complete": False}
         
     intent = analysis.get("intent")
     
-    if intent == "SWITCH":
-        session.switch_topic_buffer = message # Or extract explicit topic from analysis
+    if intent == "SWITCH": 
+        session.switch_topic_buffer = message 
         session.status = "AWAITING_SWITCH_CONFIRMATION"
         session.save()
-        return {"reply": f"Are you sure you want to stop learning **{session.current_topic}** and switch topics?", "awaiting_reply": True}
+        return {"reply": f"Are you sure you want to stop learning **{session.current_topic}** and switch topics?", "awaiting_reply": True, "is_complete": False}
         
     if intent == "DOUBT":
         # Answer doubt, do not advance
-        return {"reply": analysis.get("reply"), "awaiting_reply": True}
+        return {"reply": analysis.get("reply"), "awaiting_reply": True, "is_complete": False}
         
+    if intent == "SKIP":
+        session.current_index += 1
+        if session.current_index >= len(session.subtopics):
+            session.status = "IDLE"
+            session.save()
+            return {"reply": "Skipped to end. Topic completed!", "awaiting_reply": False, "is_complete": True}
+        
+        next_sub = session.subtopics[session.current_index]
+        session.save()
+        content = teach_content(next_sub)
+        return {"reply": f"Skipping ahead!\n\n{content}", "awaiting_reply": True, "is_complete": False}
+
     if intent == "ANSWER":
         if analysis.get("is_correct"):
             # Move to next
             session.current_index += 1
             if session.current_index >= len(session.subtopics):
                 session.status = "IDLE"
-                session.current_topic = None
+                # session.current_topic = None # Be careful clearing this if Orchestrator needs to know we finished
                 session.save()
-                return {"reply": f"{analysis.get('reply')}\n\n🎉 You've mastered this topic! What would you like to learn next?", "awaiting_reply": True}
+                return {
+                    "reply": f"{analysis.get('reply')}\n\n🎉 Fantastic! You've mastered **{session.current_topic}**!", 
+                    "awaiting_reply": False, 
+                    "is_complete": True
+                }
             
             next_sub = session.subtopics[session.current_index]
             session.status = "TEACHING"
@@ -150,9 +185,11 @@ def handle_persistent_chat(user, message):
             content = teach_content(next_sub)
             session.status = "AWAITING_ANSWER"
             session.save()
-            return {"reply": f"{analysis.get('reply')}\n\nMoving on:\n\n{content}", "awaiting_reply": True}
+            
+            success_msg = f"Great job understanding **{current_sub}**!"
+            return {"reply": f"{analysis.get('reply')}\n\n{success_msg}\n\nMoving on:\n\n{content}", "awaiting_reply": True, "is_complete": False}
         else:
-            # Incorrect: Explain and retry (or same question)
-            return {"reply": f"{analysis.get('reply')}\n\nTry again?", "awaiting_reply": True}
+            # Incorrect
+            return {"reply": f"{analysis.get('reply')}\n\nTry again?", "awaiting_reply": True, "is_complete": False}
 
-    return {"reply": "I'm confused. Let's continue.", "awaiting_reply": True}
+    return {"reply": "I'm confused. Let's continue.", "awaiting_reply": True, "is_complete": False}

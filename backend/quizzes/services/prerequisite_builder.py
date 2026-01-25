@@ -4,7 +4,7 @@ from .neo4j_services import Neo4jService
 from .gemini_service import GeminiService
 
 class PrerequisiteBuilder:
-    def __init__(self, neo4j_db="dsa"):
+    def __init__(self, neo4j_db="neo4j"):
         self.neo4j = Neo4jService(database=neo4j_db)
         self.gemini = GeminiService()
         self.visited = set()

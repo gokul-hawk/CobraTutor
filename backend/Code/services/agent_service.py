@@ -6,11 +6,11 @@ import re
 from typing import Dict, Any
 # from langchain.agents import initialize_agent, Tool, AgentType (REMOVED)
 # from langchain.memory import ConversationBufferMemory (REMOVED)
-from .gemini_service import GeminiLLM
+from chatbot.services.groq_service import GroqService
 from Code.models import QuestionB, Plan, TestCase
 
-# Initialize Gemini model
-gemini = GeminiLLM()
+# Initialize Groq model
+groq = GroqService()
 
 # ─────────────────────────────
 # TOOL 1: Intent classification
@@ -29,13 +29,12 @@ def decide_intent_tool(user_query: str) -> Dict[str, Any]:
 
     Example outputs:
     {{"type": "plan", "topic": "arrays", "count": 5, "intent": "interview",company": "Google"}}
-    {{"type": "Learn", "topic": "recursion", "count": 1, "intent": "practice","company": "Practice"}}
+    {{"type": "Learn", "topic": "recursion", "count": 8, "intent": "practice","company": "Practice"}}
     {{"type": "plan", "topic": "data structures", "count": 3, "intent": "explore","company": "Tcs"}}
-    {{"type": "Learn", "topic": "recursion", "count": 2, "intent": "practice","company": "Practice"}}
+    {{"type": "Learn", "topic": "recursion", "count": 8, "intent": "practice","company": "Practice"}}
     User query: "{user_query}"
     """
-    resp = gemini.ask(prompt)
-    resp = gemini.ask(prompt)
+    resp = groq.generate_content(prompt)
     try:
         # Robust extraction
         match = re.search(r"\{.*\}", resp, re.DOTALL)
@@ -58,8 +57,7 @@ def generate_question_tool(topic: str, difficulty: str = "medium") -> Dict[str, 
     Generate a {difficulty} coding question about "{topic}".
     Return JSON with keys: title, description, difficulty, testcases: [{{"input_data:string", "expected_output:string"}}].
     """
-    resp = gemini.ask(prompt)
-    resp = gemini.ask(prompt)
+    resp = groq.generate_content(prompt)
     try:
         match = re.search(r"\{.*\}", resp, re.DOTALL)
         if match:
@@ -80,11 +78,16 @@ def create_plan_tool(topic: str, intent: str, count: int,company:str) -> Dict[st
     Generate a learning plan with N question titles or descriptions.
     """
     prompt = f"""
+    if intent is interview
     Create a short coding practice plan for topic '{topic}' (intent: {intent}) with {count} problems with previously asked interview questions in {company}.Collect important questions from the {company}.
     Return JSON: {{"plan":[{{"title":"...","difficulty":"..."}},...]}}
+    elif intent is Learn
+        Create 8 short problems in order that it starts from beginner adding a new small thing in the next step from easy to medium like (backtracking goes from recursion, then adding memory and adding elements and removing) for the {topic} Return JSON: {{"plan":[{{"title":"...","difficulty":"..."}},...]}}
+    elif a specific question is asked return the question he ask as
+        Return JSON: {{"plan":[{{"title":"...","difficulty":"..."}},...]}}
+
     """
-    resp = gemini.ask(prompt)
-    resp = gemini.ask(prompt)
+    resp = groq.generate_content(prompt)
     try:
         match = re.search(r"\{.*\}", resp, re.DOTALL)
         if match:
@@ -125,7 +128,7 @@ def process_user_query(user_query: str,user):
     results = []
 
     # 2️⃣ If plan: generate a study plan and questions
-    if plan_type == "plan":
+    if plan_type == "plan" or plan_type == "Learn":
         plan_data = create_plan_tool(topic, intent, count,company)
         print(1,plan_data)
         question_ids = []

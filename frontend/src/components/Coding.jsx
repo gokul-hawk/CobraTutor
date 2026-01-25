@@ -2,9 +2,13 @@ import React, { useState, useRef, useEffect } from "react";
 import CodeEditor from "./CodeEditor";
 import { loadPyodide } from "pyodide";
 import axios from "axios";
+import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
 
 export default function CodingPage() {
-  // ====== YOUR EXACT SAME LOGIC (NO CHANGES) ======
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const topic = searchParams.get("topic") || location.state?.topic;
+
   const [code, setCode] = useState(`# Write your solution here\nprint("Hello, World!")`);
   const [consoleOutput, setConsoleOutput] = useState("");
   const [assistantMessages, setAssistantMessages] = useState([]);
@@ -16,10 +20,17 @@ export default function CodingPage() {
   const [pyodide, setPyodide] = useState(null);
   const [testCases, setTestCases] = useState([]);
   const [planDescription, setPlanDescription] = useState("");
-  const [isTopicModalOpen, setIsTopicModalOpen] = useState(true);
+  const [isTopicModalOpen, setIsTopicModalOpen] = useState(!topic); // Auto-close if topic exists
   const [userQuery, setUserQuery] = useState("");
   const [responseMode, setResponseMode] = useState(null);
   const assistantEndRef = useRef(null);
+
+  // AUTO-START for Standard Coding Page
+  useEffect(() => {
+    if (topic) {
+      fetchQuestions(topic);
+    }
+  }, [topic]);
 
   useEffect(() => {
     async function initPyodide() {
@@ -190,6 +201,39 @@ results_json
       });
 
       outputString = `📊 Result: ${passCount}/${results.length} Passed\n\n` + outputString;
+
+      if (results.length > 0 && passCount === results.length) {
+        outputString += "\n🎉 ALL TESTS PASSED! REPORTING SUCCESS TO TUTOR...\n";
+        setConsoleOutput(outputString);
+
+        try {
+          const userData = JSON.parse(localStorage.getItem("user"));
+          const token = userData?.access;
+
+          const successRes = await axios.post(
+            "http://127.0.0.1:8000/api/main-agent/report_success/",
+            {},
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          outputString += "\n🤖 TUTOR SAYS:\n" + successRes.data.reply + "\n";
+
+          // Handle Actions (Auto-Navigate to next step)
+          if (successRes.data.action) {
+            const action = successRes.data.action;
+            outputString += `\n🚀 Auto-navigating to ${action.view}...`;
+            setTimeout(() => {
+              if (action.view === 'code') window.location.href = '/coding'; // Simple reload/redirect
+              if (action.view === 'debugger') window.location.href = '/debugger';
+              if (action.view === 'quiz') window.location.href = '/quiz';
+            }, 3000);
+          }
+        } catch (apiErr) {
+          console.error(apiErr);
+          outputString += "\n⚠️ Failed to report success to Tutor.";
+        }
+      }
+
       setConsoleOutput(outputString);
 
     } catch (err) {
@@ -395,8 +439,8 @@ results_json
               key={i}
               onClick={() => setCurrentIndex(i)}
               className={`px - 4 py - 2 rounded - lg text - sm font - medium transition ${i === currentIndex
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                ? "bg-indigo-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
                 } `}
             >
               {q.title || `Q${i + 1} `}
@@ -524,8 +568,8 @@ results_json
                   <div
                     key={i}
                     className={`p - 3 rounded - lg max - w - [90 %] ${msg.role === "user"
-                        ? "bg-indigo-900/50 ml-auto border border-indigo-700"
-                        : "bg-teal-900/20 mr-auto border border-teal-800"
+                      ? "bg-indigo-900/50 ml-auto border border-indigo-700"
+                      : "bg-teal-900/20 mr-auto border border-teal-800"
                       } `}
                   >
                     <div className="text-xs text-gray-400 mb-1">

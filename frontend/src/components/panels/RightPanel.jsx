@@ -15,7 +15,7 @@ const RightPanel = () => {
                 <button className="tool-button" onClick={() => navigate('/Playground')}>
                     Coding Playground
                 </button>
-                <button className="tool-button" onClick={() => navigate('/debugging-zone')}>
+                <button className="tool-button" onClick={() => navigate('/debugger')}>
                     Debugging Zone
                 </button>
                 <button className="tool-button" onClick={() => navigate('/quiz')}>

@@ -54,6 +54,8 @@ INSTALLED_APPS = [
     'quizzes',
     'Code',
     'chatbot',
+    'debugger',
+    'main_agent',
 ]
 
 MIDDLEWARE = [

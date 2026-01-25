@@ -28,7 +28,9 @@ def test_tutor_flow():
 
     # 1. Start Conversation
     print("\n--- Sending Topic 'Python Lists' ---")
-    resp = handle_persistent_chat(user, "Python Lists")
+    # New signature only takes user and message.
+    # Logic: If it's a new topic, the Tutor Agent (internally) should pick it up if IDLE or if users asks to switch.
+    resp = handle_persistent_chat(user, "Teach me Python Lists") 
     print(f"Bot Reply: {resp['reply'][:100]}...")
     
     # Check DB

@@ -34,21 +34,65 @@ def generate_question(request):
     except User.DoesNotExist:
         return JsonResponse({"error": "User not found"}, status=404)
 
-    # --- Call Gemini API to generate question + test cases ---
-    gemini_payload = {
-        "prompt": f"Generate a new random coding question and test cases on topic '{topic}'. Return JSON with keys: question_text, test_cases."
-    }
-    try:
-        gemini_resp = generate_question_with_testcases(topic)
-        print(123)
-    except Exception as e:
-        return JsonResponse({"error": f"Gemini request failed: {str(e)}"}, status=500)
-    question_text = gemini_resp.get("question", "No question generated")
-    test_cases = gemini_resp.get("test_cases", [])
-    print(question_text,test_cases)
+    # --- Call Agent Service (Groq) ---
+    from .services.agent_service import process_user_query
     
-    UserQuestion(user=user, topic=topic, question_text=question_text, test_cases=test_cases).save()
+    # Construct a query to trigger intent detection or directly use tools
+    # Since we want a question for a topic, we can simulate a query
+    query = f"Generate a coding question about {topic}"
+    
+    try:
+        user = User.objects.get(id=user_id)
+        # process_user_query saves the question to DB (QuestionB/Plan)
+        # We need to adapt the return to what frontend expects
+        # process_user_query returns {"type": "single", "question": qdata} or plan
+        
+        result_data = process_user_query(query, user)
+        
+        if result_data.get("type") == "single":
+            qdata = result_data.get("question", {})
+            question_text = qdata.get("description", "") # or title + description
+            # Frontend expects "question_text"
+            if qdata.get("title"):
+                question_text = f"**{qdata.get('title')}**\n\n{question_text}"
+                
+            test_cases = qdata.get("testcases", [])
+            
+        elif result_data.get("type") == "plan":
+             # If it generated a plan, just take the first question?
+             # Or inform frontend?
+             # For now, let's just take the first question from the plan if available
+             questions = result_data.get("questions", [])
+             if questions:
+                 qdata = questions[0]
+                 question_text = f"**{qdata.get('title')}**\n\n{qdata.get('description')}"
+                 test_cases = qdata.get("testcases", [])
+             else:
+                 question_text = "No question generated."
+                 test_cases = []
+        else:
+            question_text = "Unexpected agent response."
+            test_cases = []
 
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({"error": f"Agent request failed: {str(e)}"}, status=500)
+    
+    # Note: process_user_query already saves QuestionB / Plan models.
+    # The frontend seems to rely on the response JSON directly or maybe refetching.
+    # The original view saved UserQuestion (mongoengine).
+    # agent_service saves QuestionB (mongoengine).
+    # We might want to save UserQuestion too if frontend relies on it specifically?
+    # Original view saved: UserQuestion(user=user, topic=topic, question_text=question_text, test_cases=test_cases).save()
+    
+    # Let's save UserQuestion to maintain backward compatibility for now, 
+    # even though agent_service saves QuestionB.
+    # UserQuestion matches the simple schema frontend might expect if it lists them.
+    try:
+        UserQuestion(user=user, topic=topic, question_text=question_text, test_cases=test_cases).save()
+    except Exception as e:
+        print(f"Error saving legacy UserQuestion: {e}")
 
     # --- Return response to frontend ---
     return JsonResponse({

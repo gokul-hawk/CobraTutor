@@ -1,14 +1,20 @@
-// QuizPage.js
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 
 const QuizPage = () => {
-  const [inputTopics, setInputTopics] = useState("");
+  const location = useLocation();
+
+  // Start in 'initializing' if we have an auto-topic to prevent Input Form flash
+  const [currentPhase, setCurrentPhase] = useState(() => {
+    return location.state?.topic ? "initializing" : "input";
+  });
+
+  const [inputTopics, setInputTopics] = useState(location.state?.topic || "");
   const [attempts, setAttempts] = useState([]);
   const [answers, setAnswers] = useState({});
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [currentPhase, setCurrentPhase] = useState("input");
   const [sessionId, setSessionId] = useState("");
 
   const getAuthHeader = () => {
@@ -17,112 +23,25 @@ const QuizPage = () => {
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const handleGenerateQuiz = async () => {
-    const topics = inputTopics.split(",").map(t => t.trim()).filter(t => t);
-    if (topics.length === 0) {
-      alert("Please enter at least one topic.");
-      return;
+  // Check for auto-start from navigation
+  useEffect(() => {
+    if (location.state?.topic && currentPhase === 'initializing') {
+      const autoTopic = location.state.topic;
+      // Trigger generation immediately
+      handleGenerateQuiz(autoTopic);
     }
+  }, [location.state]);
 
-    setLoading(true);
-    try {
-      const res = await axios.post(
-        "http://localhost:8000/api/quizzes/generate/",
-        { topic_names: topics },
-        { headers: getAuthHeader() }
-      );
-
-      setSessionId(res.data.session_id);
-      if (res.data.attempts && res.data.attempts.length > 0) {
-        setAttempts(res.data.attempts);
-        setAnswers({});
-        setResults(null);
-        setCurrentPhase("quiz");
-      } else {
-        setResults({
-          topic_scores: res.data.topic_scores || {},
-          message: res.data.message || "All prerequisites mastered!",
-          session_id: res.data.session_id
-        });
-        setCurrentPhase("results");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Failed to generate quiz: " + (err.response?.data?.error || err.message));
-    }
-    setLoading(false);
-  };
-
-  const handleAnswerChange = (attemptId, questionId, choice) => {
-    setAnswers(prev => ({
-      ...prev,
-      [attemptId]: {
-        ...prev[attemptId],
-        [questionId]: choice
-      }
-    }));
-  };
-
-  const handleSubmitQuiz = async () => {
-    const submissions = attempts.map(attempt => {
-      const attemptAnswers = answers[attempt.attempt_id] || {};
-      const allAnswered = attempt.questions.every(q => attemptAnswers[q.question_id] != null);
-      if (!allAnswered) {
-        alert(`Please answer all questions for topic: ${attempt.topic}`);
-        throw new Error("incomplete");
-      }
-      return {
-        attempt_id: attempt.attempt_id,
-        answers: attempt.questions.map(q => ({
-          question_id: q.question_id,
-          chosen_choice_text: attemptAnswers[q.question_id]
-        }))
-      };
-    });
-
-    setLoading(true);
-    try {
-      const res = await axios.post(
-        "http://localhost:8000/api/quizzes/submit/",
-        { 
-          session_id: sessionId,
-          submissions 
-        },
-        { headers: getAuthHeader() }
-      );
-
-      setResults(res.data);
-      setCurrentPhase("results");
-    } catch (err) {
-      if (err.message !== "incomplete") {
-        console.error(err);
-        alert("Submission failed: " + (err.response?.data?.error || err.message));
-      }
-    }
-    setLoading(false);
-  };
-
-  const handleNextRound = () => {
-    if (!results?.next_quizzes) return;
-    setAttempts(results.next_quizzes);
-    setSessionId(results.session_id);
-    setAnswers({});
-    setResults(null);
-    setCurrentPhase("quiz");
-  };
-
-  const handleReset = () => {
-    setInputTopics("");
-    setAttempts([]);
-    setAnswers({});
-    setResults(null);
-    setSessionId("");
-    setCurrentPhase("input");
-  };
-
-  // ======================
-  // RENDERING
-  // ======================
+  // Render "Initializing" state
+  if (currentPhase === "initializing") {
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+        <div className="text-white text-xl font-semibold animate-pulse">
+          🚀 Launching Concept Explorer for {location.state?.topic}...
+        </div>
+      </div>
+    );
+  }
 
   if (currentPhase === "input") {
     return (
@@ -151,11 +70,10 @@ const QuizPage = () => {
             <button
               onClick={handleGenerateQuiz}
               disabled={loading}
-              className={`w-full py-3 px-4 rounded-lg text-white font-semibold text-lg transition-all ${
-                loading
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
-              }`}
+              className={`w-full py-3 px-4 rounded-lg text-white font-semibold text-lg transition-all ${loading
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg"
+                }`}
             >
               {loading ? (
                 <span className="flex items-center justify-center">
@@ -219,11 +137,10 @@ const QuizPage = () => {
                               {q.options.map((opt, i) => (
                                 <label
                                   key={i}
-                                  className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${
-                                    answers[attempt.attempt_id]?.[q.question_id] === opt
-                                      ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
-                                      : "border-gray-200 hover:bg-gray-50"
-                                  }`}
+                                  className={`flex items-center p-3 rounded-lg border cursor-pointer transition-all ${answers[attempt.attempt_id]?.[q.question_id] === opt
+                                    ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
+                                    : "border-gray-200 hover:bg-gray-50"
+                                    }`}
                                 >
                                   <input
                                     type="radio"
@@ -249,11 +166,10 @@ const QuizPage = () => {
               <button
                 onClick={handleSubmitQuiz}
                 disabled={loading}
-                className={`w-full py-3 px-4 rounded-lg font-semibold text-lg transition-all ${
-                  loading
-                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                    : "bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md hover:shadow-lg"
-                }`}
+                className={`w-full py-3 px-4 rounded-lg font-semibold text-lg transition-all ${loading
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md hover:shadow-lg"
+                  }`}
               >
                 {loading ? "Submitting..." : "Submit Answers & Analyze"}
               </button>
@@ -287,14 +203,13 @@ const QuizPage = () => {
                   <div key={topic} className="border border-gray-200 rounded-xl p-4">
                     <div className="flex justify-between items-start mb-2">
                       <span className="font-medium text-gray-800">{topic}</span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        score >= 50 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                      }`}>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${score >= 50 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                        }`}>
                         {score}%
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
+                      <div
                         className={`h-2 rounded-full ${score >= 50 ? "bg-green-500" : "bg-red-500"}`}
                         style={{ width: `${score}%` }}
                       ></div>
@@ -362,6 +277,14 @@ const QuizPage = () => {
                   <p className="text-gray-700 mb-6">
                     {results.message || "You're ready to learn the target topics!"}
                   </p>
+
+                  {/* Auto-Reporting Success Block */}
+                  {(!results.all_failed_topics || results.all_failed_topics.length === 0) && (
+                    <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg animate-pulse">
+                      <p className="text-indigo-800 font-medium">🤖 Reporting success to Agent... Stand by.</p>
+                    </div>
+                  )}
+
                   <button
                     onClick={handleReset}
                     className="px-6 py-3 bg-gray-800 text-white rounded-lg font-semibold hover:bg-gray-900 transition-colors"
@@ -376,6 +299,35 @@ const QuizPage = () => {
       </div>
     );
   }
+
+  // Effect to report success to Agent
+  useEffect(() => {
+    const reportToAgent = async () => {
+      if (currentPhase === 'results' && results && (!results.next_quizzes || results.next_quizzes.length === 0)) {
+        // If no failures, report success
+        if (!results.all_failed_topics || results.all_failed_topics.length === 0) {
+          try {
+            const res = await axios.post(
+              "http://localhost:8000/api/main-agent/report_success/",
+              {},
+              { headers: getAuthHeader() }
+            );
+            if (res.data.action) {
+              // Navigate
+              setTimeout(() => {
+                if (res.data.action.view === 'code') window.location.href = '/coding';
+                if (res.data.action.view === 'debugger') window.location.href = '/debugger';
+                if (res.data.action.view === 'tutor') window.location.href = '/tutor';
+              }, 2000);
+            }
+          } catch (e) {
+            console.error("Failed to report success", e);
+          }
+        }
+      }
+    };
+    reportToAgent();
+  }, [currentPhase, results]);
 
   return null;
 };

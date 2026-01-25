@@ -5,12 +5,77 @@ from users.authentication import JWTAuthentication
 from rest_framework.response import Response
 from rest_framework import status
 import os
+from main_agent.models import AgentSession
+from Code.models import UserQuestion
 # import google.generativeai as genai (REMOVED)
 from .services.groq_service import GroqService
 
 # configure genai for other endpoints (summarize/quiz)
 # genai.configure... (REMOVED)
 groq_service = GroqService()
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def welcome_message(request):
+    user = request.user
+    
+    # 1. Fetch Context
+    # Get last active session
+    last_session = AgentSession.objects(user=user).order_by('-updated_at').first()
+    
+    # Get recent questions
+    recent_questions = UserQuestion.objects.filter(user=user).order_by('-created_at')[:3]
+    recent_topics = [q.topic for q in recent_questions]
+    
+    # 2. Construct Prompt for Agent
+    prompt = f"""
+    You are the welcome module for an AI Tutor.
+    User Context:
+    - Name: {user.username}
+    - Recent Topics Practiced: {", ".join(recent_topics) if recent_topics else "None"}
+    - Last Active Session Topic: {last_session.current_topic if last_session and last_session.current_topic else "None"}
+    
+    Task:
+    1. Generate a short, warm, personalized welcome message (max 2 lines).
+    2. Crucially, explicitly state that you are an AI Tutor constrained to 3 specific capabilities:
+       - **Plan**: Designing custom learning paths.
+       - **Learn**: Explaining concepts and answering questions.
+       - **Practice**: Providing coding challenges and quizzes.
+    3. Suggest 3 specific subtopics or new topics they should learn next based on this context. 
+       If context is empty, suggest "Python Basics", "Data Structures", "Algorithms".
+       
+    Output strictly JSON:
+    {{
+      "message": "...",
+      "recommendations": ["Topic A", "Topic B", "Topic C"]
+    }}
+    """
+    
+    try:
+        response_text = groq_service.generate_content(prompt)
+        # Clean JSON
+        import re
+        import json
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group())
+        else:
+            # Fallback
+            data = {
+                "message": f"Welcome back, {user.username}! Ready to learn something new?",
+                "recommendations": ["Python Basics", "Data Structures", "Web Development"]
+            }
+            
+        return Response(data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        print(f"Welcome Error: {e}")
+        return Response({
+            "message": "Hi! I'm your AI Tutor. How can I help you today?",
+            "recommendations": ["Python", "JavaScript", "React"] 
+        }, status=status.HTTP_200_OK)
+
 
 
 @api_view(["POST"])
@@ -30,6 +95,7 @@ def tutor_chat(request):
             {
                 "reply": result.get("reply"),
                 "awaiting_reply": bool(result.get("awaiting_reply", False)),
+                "is_complete": bool(result.get("is_complete", False)),
                 "ended": bool(result.get("ended", False)),
             },
             status=status.HTTP_200_OK,

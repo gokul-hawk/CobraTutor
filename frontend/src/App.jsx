@@ -10,25 +10,46 @@ import Quiz from './components/Quiz';
 import PythonRunner from './components/Coding';
 import Dashboard from './components/Dashboard';
 import TutorApp from './components/Chat/TutorApp';
+import Debugger from './components/Debugger';
+import AgentQuiz from './components/AgentQuiz';
+import AgentCode from './components/AgentCode';
+import AgentDebugger from './components/AgentDebugger';
+import AgentTutor from './components/AgentTutor';
+
+import ChatWidget from './components/EmbeddableChat/ChatWidget'; // Import
+
+// Test Page for Widget
+const TestWidgetPage = () => (
+  
+    <ChatWidget />
+  
+);
+
 // A wrapper component to protect routes
 const PrivateRoute = ({ children }) => {
-    const user = authService.getCurrentUser();
-    return user ? children : <Navigate to="/login" />;
+  const user = authService.getCurrentUser();
+  return user ? children : <Navigate to="/login" />;
 };
 
 function App() {
-    
-    return ( <React.StrictMode>
+
+  return (<React.StrictMode>
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/test-widget" element={<TestWidgetPage />} /> {/* NEW TEST ROUTE */}
         <Route path="/Playground" element={<Playground />} />
         <Route path="/coding" element={<PythonRunner />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-       <Route path='/quiz' element={<Quiz />} />
-       <Route path='/coding' element={<PythonRunner />} />
+        <Route path='/quiz' element={<Quiz />} />
+        <Route path='/agent-quiz' element={<AgentQuiz />} />
+        <Route path='/agent-code' element={<AgentCode />} />
+        <Route path='/agent-debugger' element={<AgentDebugger />} />
+        <Route path='/agent-tutor' element={<AgentTutor />} />
+        <Route path='/coding' element={<PythonRunner />} />
         <Route path='/tutor' element={<TutorApp />} />
+        <Route path='/debugger' element={<Debugger />} />
         <Route
           path="/dashboard"
           element={

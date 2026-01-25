@@ -46,3 +46,25 @@ class GeminiService:
         except Exception as e:
             print(f"Groq error for topic '{topic}': {e}")
             return []
+
+    def get_prerequisites(self, topic: str) -> list[str]:
+        """
+        Generates a list of prerequisite topics for the given concept using Groq.
+        Fallback when Neo4j doesn't have the data.
+        """
+        prompt = f"""
+        Identify the immediate prerequisite concepts needed to understand the Python topic: "{topic}".
+        Return ONLY a JSON array of strings. No extra text.
+        Example: ["Variables", "Data Types"]
+        """
+        try:
+            raw = self.groq_service.generate_content(prompt).strip()
+            # Clean potential markdown
+            clean = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+            data = json.loads(clean)
+            if isinstance(data, list):
+                return data
+            return []
+        except Exception as e:
+            print(f"Groq get_prerequisites error for '{topic}': {e}")
+            return []
