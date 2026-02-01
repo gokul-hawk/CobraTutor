@@ -37,7 +37,22 @@ class GeminiService:
             # response = self.model.generate_content(prompt)
             # raw = response.text.strip()
             raw = self.groq_service.generate_content(prompt).strip()
-            clean = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+            
+            # Robust JSON check
+            # 1. Remove <think> blocks
+            clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            
+            # 2. Extract code blocks
+            if "```json" in clean:
+                clean = clean.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean:
+                clean = clean.split("```")[1].split("```")[0].strip()
+                
+            # 3. Regex search for list/object
+            match = re.search(r"(\{|\[).+(\}|\])", clean, re.DOTALL)
+            if match:
+                clean = match.group()
+                
             data = json.loads(clean)
 
             if isinstance(data, dict):
@@ -47,24 +62,40 @@ class GeminiService:
             print(f"Groq error for topic '{topic}': {e}")
             return []
 
-    def get_prerequisites(self, topic: str) -> list[str]:
+    def get_prerequisites(self, topic: str, count: int = 2) -> list[str]:
         """
         Generates a list of prerequisite topics for the given concept using Groq.
         Fallback when Neo4j doesn't have the data.
         """
         prompt = f"""
-        Identify the immediate prerequisite concepts needed to understand the Python topic: "{topic}".
+        Identify exactly {count} immediate prerequisite concepts needed to understand the Python topic: "{topic}".
         Return ONLY a JSON array of strings. No extra text.
         Example: ["Variables", "Data Types"]
         """
         try:
             raw = self.groq_service.generate_content(prompt).strip()
-            # Clean potential markdown
-            clean = re.sub(r"^```(?:json)?|```$", "", raw, flags=re.MULTILINE).strip()
+            
+            # Robust JSON check
+            # 1. Remove <think> blocks
+            clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            
+            # 2. Extract code blocks if present
+            if "```json" in clean:
+                clean = clean.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean:
+                clean = clean.split("```")[1].split("```")[0].strip()
+                
+            # 3. Last attempt regex find list
+            match = re.search(r"\[.*\]", clean, re.DOTALL)
+            if match:
+                 clean = match.group()
+            
             data = json.loads(clean)
             if isinstance(data, list):
-                return data
+                return data[:count]
             return []
         except Exception as e:
+            import sys
             print(f"Groq get_prerequisites error for '{topic}': {e}")
+            sys.stdout.flush()
             return []

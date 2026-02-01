@@ -28,7 +28,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
-NEO4J_URI = "bolt://graph_db:7687"
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://graph_db:7687")
 NEO4J_USER = "neo4j"
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -143,7 +143,7 @@ CORS_ALLOWED_ORIGINS = [
 ]
 from neomodel import config
 NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD')
-config.DATABASE_URL = f'bolt://neo4j:{NEO4J_PASSWORD}@graph_db:7687'
+config.DATABASE_URL = os.getenv("NEO4J_URI", f'bolt://neo4j:{NEO4J_PASSWORD}@graph_db:7687').replace("bolt://", f"bolt://neo4j:{NEO4J_PASSWORD}@")
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
 

@@ -118,25 +118,32 @@ const AgentDebugger = () => {
     const reportSuccess = async () => {
         try {
             const userData = JSON.parse(localStorage.getItem("user"));
-            const config = { headers: { Authorization: `Bearer ${userData?.access}` } };
+            const token = userData?.access;
+            const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-            const reportRes = await axios.post("http://localhost:8000/api/main-agent/report_success/", {}, config);
+            const res = await axios.post(
+                "http://localhost:8000/api/main-agent/report_success/",
+                { failed_topics: [], source: "debug" }, // Debugger success implies no failed topics for this step
+                config
+            );
 
-            if (reportRes.data.action) {
-                const action = reportRes.data.action;
+            if (res.data.action) {
                 setTimeout(() => {
-                    if (action.view === 'code') navigate(`/agent-code?topic=${encodeURIComponent(action.data?.topic)}`);
-                    if (action.view === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(action.data?.topic)}`);
-                    if (action.view === 'quiz') navigate(`/agent-quiz?topic=${encodeURIComponent(action.data?.topic)}`);
-                    if (action.view === 'tutor') navigate('/agent-tutor', { state: { initialMessage: reportRes.data.reply } });
-                }, 2500);
+                    if (res.data.action.view === 'code') navigate(`/agent-code?topic=${encodeURIComponent(res.data.action.data.topic)}`);
+                    if (res.data.action.view === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(res.data.action.data.topic)}`);
+                    if (res.data.action.view === 'tutor') navigate('/agent-tutor', { state: { initialMessage: res.data.reply } });
+                    if (res.data.action.view === 'Gaps') navigate(`/agent-quiz?topic=${encodeURIComponent(res.data.action.data.topic)}`);
+                    if (res.data.action.view === 'dashboard') navigate('/');
+                }, 2000);
             } else {
+                // No explicit action (e.g., Teaching Phase), go to Tutor to read the reply
                 setTimeout(() => {
-                    navigate('/agent-tutor', { state: { initialMessage: reportRes.data.reply } });
+                    navigate('/agent-tutor', { state: { initialMessage: res.data.reply } });
                 }, 2000);
             }
-
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error("Failed to report success", e);
+        }
     };
 
     if (loading) return <div className="h-screen flex items-center justify-center bg-gray-900 text-white">Loading Agent Mission...</div>;

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import { BookOpen, BrainCircuit, FileText, Send, MonitorPlay, Moon, Sun, Copy, Check } from "lucide-react";
+import { BookOpen, BrainCircuit, FileText, Send, MonitorPlay, Moon, Sun, Copy, Check, Eye } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
-import { sendMessage, getWelcomeMessage } from "../../services/chatService";
+import { sendMessage, getTutorWelcome } from "../../services/chatService";
+import VisualizerRenderer from '../VisualizerRenderer';
 
 const DJANGO_BASE_URL = "http://127.0.0.1:8000/api";
 
@@ -37,7 +38,7 @@ const MarkdownComponents = {
   h3: ({ node, ...props }) => <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mt-4 mb-2" {...props} />,
 
   // Text
-  p: ({ node, ...props }) => <p className="text-slate-700 dark:text-slate-300 leading-7 mb-4 last:mb-0" {...props} />,
+  p: ({ node, ...props }) => <div className="text-slate-700 dark:text-slate-300 leading-7 mb-4 last:mb-0" {...props} />,
   strong: ({ node, ...props }) => <strong className="font-bold text-slate-900 dark:text-white" {...props} />,
   em: ({ node, ...props }) => <em className="italic text-slate-600 dark:text-slate-400" {...props} />,
 
@@ -59,7 +60,7 @@ const MarkdownComponents = {
 
     if (inline) {
       return (
-        <code className="bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-indigo-100 dark:border-indigo-800/50" {...props}>
+        <code className="text-pink-600 dark:text-pink-400 font-semibold px-1 rounded-sm" {...props}>
           {children}
         </code>
       );
@@ -96,15 +97,15 @@ const MarkdownComponents = {
 
   // Tables
   table: ({ node, ...props }) => (
-    <div className="overflow-x-auto my-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+    <div className="overflow-x-auto my-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm bg-white dark:bg-zinc-900/50">
       <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700" {...props} />
     </div>
   ),
-  thead: ({ node, ...props }) => <thead className="bg-slate-50 dark:bg-slate-800" {...props} />,
-  th: ({ node, ...props }) => <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider" {...props} />,
-  tbody: ({ node, ...props }) => <tbody className="bg-white dark:bg-slate-900/50 divide-y divide-slate-200 dark:divide-slate-700" {...props} />,
+  thead: ({ node, ...props }) => <thead className="bg-slate-100 dark:bg-slate-800" {...props} />,
+  th: ({ node, ...props }) => <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700" {...props} />,
+  tbody: ({ node, ...props }) => <tbody className="bg-transparent divide-y divide-slate-100 dark:divide-slate-800" {...props} />,
   tr: ({ node, ...props }) => <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors" {...props} />,
-  td: ({ node, ...props }) => <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap" {...props} />,
+  td: ({ node, ...props }) => <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap" {...props} />,
 
   // Links
   a: ({ node, ...props }) => <a className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 underline underline-offset-2 decoration-indigo-300 dark:decoration-indigo-700 transition-colors" target="_blank" rel="noopener noreferrer" {...props} />,
@@ -119,12 +120,13 @@ const KeyConceptsPanel = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get(`${DJANGO_BASE_URL}/key_concepts/`)
+    axios.get(`${DJANGO_BASE_URL}/chat/key_concepts/`, { headers: getAuthHeaders() })
       .then((res) => {
         setConcepts(res.data);
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("Key concepts error", err);
         setConcepts(["Error loading concepts."]);
         setLoading(false);
       });
@@ -352,7 +354,7 @@ const NotesPanel = ({ messages }) => {
 };
 
 // ─────────────── CHAT AREA ───────────────
-const ChatArea = ({ messages, setMessages }) => {
+const ChatArea = ({ messages, setMessages, setVisualizationContent, setActiveTab }) => {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatEndRef = useRef(null);
@@ -369,14 +371,51 @@ const ChatArea = ({ messages, setMessages }) => {
 
     try {
       const data = await sendMessage(userMsg);
-      // Process Action
+
+      // 1. Handle Visualization
+      if (data.visualization) {
+        setVisualizationContent(data.visualization);
+        setActiveTab("visualizer");
+      }
+
+      // 2. Handle Completion (Agent Flow)
+      if (data.is_complete) {
+        try {
+          const tokenData = localStorage.getItem("user");
+          const token = tokenData ? JSON.parse(tokenData).access : null;
+          const headers = token ? { "Authorization": `Bearer ${token}` } : {};
+
+          // Report success to Main Agent
+          const successRes = await axios.post(
+            "http://localhost:8000/api/main-agent/report_success/",
+            {},
+            { headers }
+          );
+
+          if (successRes.data.action) {
+            const action = successRes.data.action;
+            setMessages(prev => [...prev, { sender: "bot", text: `${data.reply}\n\n🚀 ${successRes.data.reply}` }]);
+
+            setTimeout(() => {
+              if (action.view === 'code') navigate(`/agent-code?topic=${encodeURIComponent(action.data?.topic)}`);
+              if (action.view === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(action.data?.topic)}`);
+              if (action.view === 'quiz') navigate(`/agent-quiz?topic=${encodeURIComponent(action.data?.topic)}`);
+              if (action.view === 'tutor') navigate('/agent-tutor', { state: { initialMessage: successRes.data.reply } });
+              if (action.view === 'dashboard') navigate('/');
+            }, 2000);
+            return; // Stop further processing
+          }
+        } catch (e) {
+          console.error("Agent Reporting Error", e);
+        }
+      }
+
+      // 3. Handle Legacy Actions (if any)
       if (data.action && data.action.type === 'SWITCH_TAB') {
         setTimeout(() => {
-          // Ask user or auto switch? Premium UI suggests auto or toast.
-          // We will auto switch after small delay
-          const targetView = data.action.view; // 'code' or 'debugger'
-          if (targetView === 'code') navigate('/coding'); // Correct route
-          if (targetView === 'debugger') navigate('/debugger');
+          const targetView = data.action.view;
+          if (targetView === 'code') navigate(`/agent-code?topic=${encodeURIComponent(data.action.topic || "Unknown")}`);
+          if (targetView === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(data.action.topic || "Unknown")}`);
         }, 1500);
       }
 
@@ -418,7 +457,7 @@ const ChatArea = ({ messages, setMessages }) => {
                     code: ({ node, ...props }) => <code className="bg-white/20 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
                   } : MarkdownComponents}
                 >
-                  {msg.text}
+                  {msg.text.replace(/\\n/g, '\n')}
                 </ReactMarkdown>
               </div>
             </div>
@@ -465,6 +504,7 @@ const ChatArea = ({ messages, setMessages }) => {
 const Sidebar = ({ activeTab, setActiveTab, darkMode, toggleTheme }) => {
   const tabs = [
     { id: "concepts", label: "Concepts", icon: BookOpen },
+    { id: "visualizer", label: "Visualizer", icon: Eye },
     { id: "quiz", label: "Quiz", icon: BrainCircuit },
     { id: "notes", label: "Notes", icon: FileText },
   ];
@@ -501,27 +541,68 @@ const Sidebar = ({ activeTab, setActiveTab, darkMode, toggleTheme }) => {
 };
 
 // ─────────────── MAIN LAYOUT ───────────────
-export default function TutorApp() {
+// Helper for headers
+const getAuthHeaders = () => {
+  const tokenData = localStorage.getItem("user");
+  const token = tokenData ? JSON.parse(tokenData).access : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export default function TutorApp({ initialTopic, initialMessage, mode = "standalone", onResponse }) {
+  // ... (existing state)
+
+  // ... (inside ChatArea component or passed down?)
+  // Wait, TutorApp renders ChatArea. I need to pass onResponse to ChatArea.
+
+  // Actually, ChatArea is defined within the same file but outside the default export. 
+  // I need to change how ChatArea receives props.
+
   const [activeTab, setActiveTab] = useState("concepts");
   const [messages, setMessages] = useState([]);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") === "dark");
+  const [visualizationContent, setVisualizationContent] = useState(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
+  const handleRegenerate = async () => {
+    setIsRegenerating(true);
+    try {
+      // No topic implies "use active session topic"
+      const res = await axios.post(`${DJANGO_BASE_URL}/chat/regenerate_visualization/`, {}, { headers: getAuthHeaders() });
+      if (res.data.visualization) {
+        setVisualizationContent(res.data.visualization);
+      }
+    } catch (err) {
+      console.error("Regeneration failed", err);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   useEffect(() => {
-    // Fetch personalized welcome
-    const fetchWelcome = async () => {
-      const welcomeData = await getWelcomeMessage();
-      if (welcomeData && welcomeData.message) {
-        setMessages([{ sender: "bot", text: welcomeData.message }]);
-      } else {
-        setMessages([{ sender: "bot", text: "👋 Hi! I'm your AI Tutor. What shall we learn today?" }]);
-      }
-    };
-    fetchWelcome();
+    // If agent mode provided specific messages, verify/load them
+    if (initialMessage) {
+      setMessages([{ sender: "bot", text: initialMessage }]);
+    }
+
+    // Only fetch welcome if standalone or no initial message passed (though if initialMessage is passed we set it above)
+    // Actually if initialMessage is passed, we set it. If we are in standalone, we fetch welcome.
+    // If mode is agent but no initialMessage (maybe linking directly?), we might want to do nothing or wait.
+    if (mode === "standalone" && !initialMessage) {
+      const fetchWelcome = async () => {
+        const welcomeData = await getTutorWelcome();
+        if (welcomeData && welcomeData.message) {
+          setMessages([{ sender: "bot", text: welcomeData.message }]);
+        } else {
+          setMessages([{ sender: "bot", text: "👋 Hi! I'm your AI Tutor. What shall we learn today?" }]);
+        }
+      };
+      fetchWelcome();
+    }
 
     if (darkMode) document.documentElement.classList.add("dark");
     else document.documentElement.classList.remove("dark");
     localStorage.setItem("theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
+  }, [mode, initialMessage, darkMode]);
 
   return (
     <div className="flex w-screen h-screen bg-white dark:bg-slate-950 font-sans overflow-hidden">
@@ -541,7 +622,7 @@ export default function TutorApp() {
           </h1>
         </header>
         <div className="flex-1 overflow-hidden relative">
-          <ChatArea messages={messages} setMessages={setMessages} />
+          <ChatArea messages={messages} setMessages={setMessages} setVisualizationContent={setVisualizationContent} setActiveTab={setActiveTab} />
         </div>
       </div>
 
@@ -549,6 +630,7 @@ export default function TutorApp() {
       <div className="w-96 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col relative shadow-xl z-20">
         <div className="flex-1 overflow-hidden">
           {activeTab === "concepts" && <KeyConceptsPanel />}
+          {activeTab === "visualizer" && <VisualizerRenderer htmlContent={visualizationContent} onRegenerate={handleRegenerate} isRegenerating={isRegenerating} />}
           {activeTab === "quiz" && <QuizPanel messages={messages} />}
           {activeTab === "notes" && <NotesPanel messages={messages} />}
         </div>

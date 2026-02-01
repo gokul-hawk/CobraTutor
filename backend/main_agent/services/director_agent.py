@@ -34,8 +34,18 @@ class DirectorAgent:
         
         try:
             response = self.groq.generate_content(prompt).strip()
+            
+            # Remove <think> blocks if present
+            import re
+            response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+            
             # Safety check
             if "ACTION_TRIGGER" not in response:
+                 # Try to extract just the action if headers are missing
+                 if "SWITCH_TO_CODE" in response: return f"ACTION_TRIGGER:SWITCH_TO_CODE:{topic}"
+                 if "SWITCH_TO_DEBUG" in response: return f"ACTION_TRIGGER:SWITCH_TO_DEBUG:{topic}"
+                 if "SWITCH_TO_QUIZ" in response: return f"ACTION_TRIGGER:SWITCH_TO_QUIZ:{topic}"
+                 
                  return f"ACTION_TRIGGER:SWITCH_TO_QUIZ:{topic}"
             return response
         except:

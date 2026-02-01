@@ -39,6 +39,7 @@ class Plan(Document):
     intent = StringField()
     topic = StringField()
     questions = ListField(StringField())  # store question IDs
+    plan_content = ListField(DictField()) # Store the raw plan steps (title, difficulty, description)
     total_questions = StringField()
     created_at = DateTimeField(default=datetime.datetime.utcnow)
 

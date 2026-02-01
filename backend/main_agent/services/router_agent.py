@@ -22,16 +22,16 @@ class RouterAgent:
         You are the Router for an AI Tutor.
         Classify the User Message into one of these intents:
 
-        1. PLAN: User explicitly says "I want to learn X", "Teach me X", "Start X".
-        2. ACTION: User says "Give me a quiz", "I want to code", "Practice", "Debug this".
-        3. CHAT: User asks "What is X?", "Explain this", "Hello", or general conversation.
+        1. PLAN: Choose this if the user wants to LEARN a topic, START a lesson, or mentions a specific subject (e.g. "Teach me X", "I want to learn Y", "Start Z", "Let's do BFS").
+        2. ACTION: Choose this ONLY if the user explicitly asks for a tool (e.g. "Give me a quiz", "I want to code", "Practice", "Debug").
+        3. CHAT: Choose this for Greetings ("Hi", "Hello") or specific questions ("What is a variable?", "Why is sky blue?"). 
+           **CRITICAL**: If the user mentions a broad topic like "Recursion" or "Machine Learning" without a specific question, assume they want a PLAN to learn it.
 
         Also detect the LEARNING STYLE:
         - "comprehensive" (default): Standard deep dive.
         - "concise": User wants "quick", "fast", "summary".
         - "test_prep": User mentions "test tomorrow", "exam", "theory".
         - "practical_prep": User mentions "practicals", "lab", "code only".
-        - "practice": User wants to practice/debug.
 
         User Message: "{message}"
 
@@ -45,12 +45,24 @@ class RouterAgent:
         
         try:
             response = self.groq.generate_content(prompt)
-            # Clean JSON
-            clean_text = response.strip()
+            print(f"DEBUG: Raw Router Response: '{response}'")
+            
+            # Robust JSON Extraction
+            import re
+            
+            # 1. Remove <think> blocks if present
+            clean_text = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+            
+            # 2. Extract JSON from code blocks if present
             if "```json" in clean_text:
                 clean_text = clean_text.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_text:
                 clean_text = clean_text.split("```")[1].split("```")[0].strip()
+            
+            # 3. If still not pure JSON, try finding first '{' and last '}'
+            json_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+            if json_match:
+                clean_text = json_match.group()
                 
             data = json.loads(clean_text)
             return data

@@ -57,10 +57,30 @@ class QuizService:
         try:
             while queue:
                 current = queue.pop()
+                if not current: continue
+
+                # 1. Skip Neo4j for now (User Request)
+                # try:
+                #     prereqs = neo4j.get_direct_prerequisites(current)
+                # except Exception as e:
+                #     print(f"Neo4j error for {current}: {e}")
+                #     prereqs = []
+                
+                # Force LLM usage
+                prereqs = [] 
+                import sys
+                print(f"Generating prerequisites via LLM for '{current}'...")
+                sys.stdout.flush()
                 try:
-                    prereqs = neo4j.get_direct_prerequisites(current)
-                except:
+                    # Use count=2 as requested
+                    prereqs = self.gemini.get_prerequisites(current, count=2)
+                    print(f"LLM generated prereqs for '{current}': {prereqs}")
+                    sys.stdout.flush()
+                except Exception as e:
+                    print(f"LLM fallback error: {e}")
+                    sys.stdout.flush()
                     prereqs = []
+
                 for p in prereqs:
                     if p not in all_topics:
                         all_topics.add(p)

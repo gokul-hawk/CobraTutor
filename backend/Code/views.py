@@ -1,4 +1,5 @@
 from django.http import JsonResponse
+import re
 # import google.generativeai as genai (REMOVED)
 from chatbot.services.groq_service import GroqService
 groq_service = GroqService()
@@ -170,11 +171,21 @@ Steps:
     full_prompt = f"{system_prompt}\n\nUser Prompt: {prompt}"
     
     try:
-        jsx = groq_service.generate_content(full_prompt)
-        # Clean any markdown fences
-        jsx = jsx.replace("```html", "").replace("```", "").strip()
-        return Response({"code": jsx})
+        reply = groq_service.generate_content(full_prompt)
+        
+        # CLEANUP: Remove <think>...</think> blocks from reasoning models
+        cleaned_reply = re.sub(r'<think>.*?</think>', '', reply, flags=re.DOTALL | re.IGNORECASE).strip()
+        
+        # Ensure we only return the HTML part if there's extra chatter
+        # Simple heuristic: find first <!DOCTYPE and last </html>
+        match = re.search(r'(<!DOCTYPE html>.*</html>)', cleaned_reply, re.DOTALL | re.IGNORECASE)
+        if match:
+            cleaned_reply = match.group(1)
+            
+        print("Visualization Generated")
+        return Response({"visualization": cleaned_reply})
     except Exception as e:
+        print(f"Error generating visualization: {e}")
         return Response({"error": str(e)}, status=500)
     
 # api/views.py
@@ -201,3 +212,170 @@ class CodeAgentView(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
+
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def get_next_plan_step(request):
+    """
+    Generates the next step in an existing plan IF it hasn't been generated yet.
+    """
+    plan_id = request.data.get("plan_id")
+    if not plan_id:
+        return Response({"error": "Plan ID required"}, status=400)
+    
+    try:
+        from .models import Plan, QuestionB, TestCase
+        from .services.agent_service import generate_question_for_step
+        
+        plan = Plan.objects.get(id=plan_id, user=request.user)
+        
+        # Determine next index
+        current_count = len(plan.questions)
+        total_steps = len(plan.plan_content)
+        
+        if current_count >= total_steps:
+             return Response({"message": "Plan completed!", "completed": True}, status=200)
+             
+        next_step_index = current_count
+        first_next_step = plan.plan_content[next_step_index]
+        
+        # Identify the phase
+        target_phase = first_next_step.get("title", "").split(":")[0].strip()
+        print(f"Loading next phase batch: {target_phase}")
+        
+        # Collect all steps belonging to this phase that haven't been generated yet
+        steps_to_generate = []
+        for i in range(next_step_index, total_steps):
+            step = plan.plan_content[i]
+            phase = step.get("title", "").split(":")[0].strip()
+            if phase == target_phase:
+                steps_to_generate.append(step)
+            else:
+                break # Stop when phase changes
+                
+        results = []
+        for step in steps_to_generate:
+            try:
+                print(f"Generating Step: {step['title']}")
+                qdata = generate_question_for_step(plan.topic, step)
+                
+                # Save Question
+                testcases = []
+                for tc in qdata.get("testcases", []):
+                        testcases.append(TestCase(input_data=tc.get("input_data"), expected_output=tc.get("expected_output")))
+    
+                qdoc = QuestionB(
+                    user=request.user,
+                    topic=plan.topic,
+                    title=qdata["title"],
+                    description=qdata["description"],
+                    difficulty=qdata.get("difficulty", "medium").lower(),
+                    testcases=testcases
+                )
+                qdoc.save()
+                
+                # Update Plan
+                plan.questions.append(str(qdoc.id))
+                results.append(qdata)
+            except Exception as e:
+                print(f"Error generating step {step['title']}: {e}")
+        
+        plan.save()
+        
+        # Return list of questions
+        return Response({"questions": results, "completed": False, "index": next_step_index}, status=200)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({"error": str(e)}, status=500)
+
+@api_view(["GET"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def get_user_plans(request):
+    """
+    Returns a list of saved plans for the user.
+    """
+    try:
+        from .models import Plan
+        # Fetch plans sorted by newest first
+        plans = Plan.objects.filter(user=request.user).order_by('-created_at')
+        
+        result = []
+        for p in plans:
+            # Calculate progress
+            total = len(p.plan_content)
+            completed = len(p.questions)
+            
+            result.append({
+                "id": str(p.id),
+                "topic": p.topic,
+                "intent": p.intent,
+                "created_at": str(p.created_at),
+                "progress": f"{completed}/{total}",
+                "completed_count": completed,
+                "total_count": total,
+                "is_completed": completed >= total and total > 0
+            })
+            
+        return Response(result, status=200)
+    except Exception as e:
+         return Response({"error": str(e)}, status=500)
+
+@api_view(["POST"])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAuthenticated])
+def ai_assist(request):
+    """
+    AI Assistant for Coding Page.
+    Expects: { "prompt": "...", "code": "...", "model": "..." }
+    """
+    prompt = request.data.get("prompt", "")
+    code_context = request.data.get("code", "")
+    history = request.data.get("history", [])
+    
+    if not prompt:
+        return Response({"error": "Prompt is required"}, status=400)
+        
+    system_prompt = f"""
+    You are an expert Python Coding Tutor.
+    The user is working on a coding problem.
+    
+    Current Code:
+    ```python
+    {code_context}
+    ```
+    
+    Provide a helpful, pedagogical response. 
+    - If the user asks for a hint, give a hint without revealing the full solution.
+    - If the user asks for debugging help, explain the error.
+    - Don't give full steps predict the next step he has to perform with his code and say the logic won't work if it don't and explain
+    - Be concise and encouraging.
+    dont output more than 500 words
+    """
+    
+    try:
+        # Build messages list
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add history
+        for msg in history:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ["user", "assistant"] and content:
+                messages.append({"role": role, "content": content})
+                
+        # Add current prompt
+        messages.append({"role": "user", "content": prompt})
+
+        reply = groq_service.chat(messages)
+        
+        # CLEANUP: Remove <think>...</think> blocks
+        if reply:
+            reply = re.sub(r'<think>.*?</think>', '', reply, flags=re.DOTALL | re.IGNORECASE).strip()
+            
+        return Response({"reply": reply})
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)

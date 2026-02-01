@@ -3,7 +3,6 @@ from .tools import MainAgentTools
 import json
 from chatbot.services.persistent_tutor import handle_persistent_chat
 
-# New Agents
 from .router_agent import RouterAgent
 from .planner_agent import PlannerAgent
 from .director_agent import DirectorAgent
@@ -17,7 +16,7 @@ class MainAgentOrchestrator:
             self.session = AgentSession(user=user)
             self.session.save()
             
-        # Initialize Sub-Agents
+        
         self.router = RouterAgent()
         self.planner = PlannerAgent()
         self.director = DirectorAgent()
@@ -110,6 +109,18 @@ class MainAgentOrchestrator:
             self._save_bot_reply(reply)
             return {"reply": reply, "action": None}
 
+    def advance_plan(self, context_message):
+        """
+        Bypasses the Router and forces the execution of the next step in the plan.
+        Used by system triggers (e.g. report_success) to ensure we don't accidentally
+        trigger a new plan via the Router.
+        """
+        self._save_bot_reply(f"System: {context_message}")
+        
+        # Check history str for context if needed, but usually not needed for step execution
+        history_str = "" 
+        return self._execute_plan_step(context_message, history_str)
+
     def _execute_plan_step(self, message, chat_history):
         """
         Executes the current step in the plan using specialized agents.
@@ -122,9 +133,9 @@ class MainAgentOrchestrator:
         current_step = self.session.current_plan[0]
         step_type = current_step.get("step")
         step_topic = current_step.get("topic")
+        action = current_step.get("action")
         
         reply = ""
-        action = None
         step_complete = False
 
         # --- STEP DISPATCHER ---
@@ -150,31 +161,59 @@ class MainAgentOrchestrator:
              action_payload = router_action_to_payload("SWITCH_TO_QUIZ", step_topic)
              reply = f"Let's check your knowledge on {step_topic}."
              action = action_payload
-             # Mark complete immediately? Or wait for success metric?
-             # For flow, let's assume opening it is the 'step', strict completion tracking needs callbacks.
-             # We'll rely on the user to say "Next" or "I'm done" effectively, OR simpler loop:
-             step_complete = True 
+             # FIX: Do NOT mark complete. Wait for report_success.
+             step_complete = False 
 
         # 3. TEACH CONTENT -> Tutor Agent
         elif step_type == "teach_content":
-             # Use Tutor Agent to explain
-             # We inject instruction to explain
-             instruction = f"Explain the concept of {step_topic} clearly to the student."
-             reply = self.tutor.handle(instruction, chat_history)
-             step_complete = True 
+             # FIX: Use Persistent Tutor Protocol (Strong Teaching)
+             from chatbot.services.persistent_tutor import handle_persistent_chat, start_new_topic
+             
+             started = current_step.get("started", False)
+             if not started:
+                 # Initial Handoff - FORCE RESET SESSION
+                 current_step["started"] = True
+                 self.session.current_plan[0] = current_step
+                 self.session.save()
+                 
+                 # Force start the topic in SQL DB
+                 start_res = start_new_topic(self.user, step_topic)
+                 roadmap_reply = start_res.get("reply")
+                 
+                 reply = f"I'm pointing you to the Tutor for **{step_topic}**."
+                 
+                 # Pass the roadmap to the frontend so it displays immediately
+                 action = {
+                     "type": "SWITCH_TAB", 
+                     "view": "tutor", 
+                     "data": {
+                         "topic": step_topic, 
+                         "initialMessage": roadmap_reply 
+                     }
+                 }
+                 step_complete = False
+             else:
+                 # Continued interaction if not switched? 
+                 # Usually users are in Tutor Tab now. If they msg here, we relay.
+                 tutor_res = handle_persistent_chat(self.user, message)
+                 reply = tutor_res.get("reply")
+                 if tutor_res.get("is_complete"):
+                     step_complete = True
 
         # 4. PRACTICE -> Director
         elif step_type == "practice_code":
              action_payload = router_action_to_payload("SWITCH_TO_CODE", step_topic)
              reply = f"Time to write some code for {step_topic}."
              action = action_payload
-             step_complete = True
+             # FIX: Do NOT mark complete. Wait for report_success.
+             step_complete = False
 
         elif step_type == "practice_debug":
              action_payload = router_action_to_payload("SWITCH_TO_DEBUG", step_topic)
              reply = f"Let's fix some bugs related to {step_topic}."
              action = action_payload
-             step_complete = True
+             # FIX: Do NOT mark complete. Wait for report_success.
+             step_complete = False
 
         else:
              # Unknown step

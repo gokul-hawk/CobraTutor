@@ -33,6 +33,7 @@ class GenerateQuizView(APIView):
 
     def post(self, request):
         topic_names = request.data.get("topic_names", [])
+        print(topic_names)
         if not isinstance(topic_names, list) or not topic_names:
             return Response({"error": "topic_names must be a non-empty list"}, status=400)
 

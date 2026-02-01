@@ -12,8 +12,8 @@ const getHeaders = () => {
 
 // Send a message to the bot
 export const sendMessage = async (message) => {
-    // Use Main Agent Orchestrator for full capabilities
-    const url = `${DJANGO_BASE_URL}/main-agent/chat/`;
+    // Use Persistent Tutor Agent for dedicated teaching flow
+    const url = `${DJANGO_BASE_URL}/chat/`;
     try {
         const response = await axios.post(url, { message }, { headers: getHeaders() });
         return response.data;
@@ -37,14 +37,26 @@ export const generateSummary = async (messages) => {
     }
 };
 
-// Get Personalized Welcome Message
+// Get Main Agent Welcome Message
 export const getWelcomeMessage = async () => {
-    const url = `${DJANGO_BASE_URL}/chat/welcome/`;
+    const url = `${DJANGO_BASE_URL}/main-agent/welcome/`;
     try {
         const response = await axios.get(url, { headers: getHeaders() });
         return response.data;
     } catch (error) {
         console.error("Welcome message fetch failed", error);
-        return null; // Fallback will be handled by UI
+        return { message: "Welcome to CobraTutor! (Offline Mode)" };
+    }
+};
+
+// Get Tutor Agent Welcome Message
+export const getTutorWelcome = async () => {
+    const url = `${DJANGO_BASE_URL}/chat/welcome/`;
+    try {
+        const response = await axios.get(url, { headers: getHeaders() });
+        return response.data;
+    } catch (error) {
+        console.error("Tutor welcome fetch failed", error);
+        return { message: "Ready to teach! What topic?" };
     }
 };

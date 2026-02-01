@@ -32,6 +32,124 @@ const QuizPage = () => {
     }
   }, [location.state]);
 
+  // Handlers
+  const handleGenerateQuiz = async (topicOverride = null) => {
+    // If called via event (onClick), topicOverride will be an object. Ignore it.
+    const isStringTopic = typeof topicOverride === 'string';
+    const topicToUse = isStringTopic ? topicOverride : inputTopics;
+
+    if (!topicToUse) {
+      alert("Please enter a topic");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Clean input: split by comma if multiple
+      const topics = topicToUse.split(",").map(t => t.trim()).filter(t => t);
+
+      const res = await axios.post(
+        "http://localhost:8000/api/quizzes/generate/",
+        { topic_names: topics },
+        { headers: getAuthHeader() }
+      );
+
+      setSessionId(res.data.session_id);
+
+      if (res.data.attempts && res.data.attempts.length > 0) {
+        setAttempts(res.data.attempts);
+        setAnswers({});
+        setResults(null);
+        setCurrentPhase("quiz");
+      } else {
+        // No prerequisites needed? Direct success.
+        setResults({
+          topic_scores: res.data.topic_scores || {},
+          message: res.data.message || "All prerequisites mastered!",
+          session_id: res.data.session_id,
+          all_failed_topics: []
+        });
+        setCurrentPhase("results");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate quiz: " + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnswerChange = (attemptId, questionId, choice) => {
+    setAnswers(prev => ({
+      ...prev,
+      [attemptId]: {
+        ...prev[attemptId],
+        [questionId]: choice
+      }
+    }));
+  };
+
+  const handleSubmitQuiz = async () => {
+    // Validate all answered
+    for (const attempt of attempts) {
+      const attemptAnswers = answers[attempt.attempt_id] || {};
+      const allAnswered = attempt.questions.every(q => attemptAnswers[q.question_id] != null);
+      if (!allAnswered) {
+        alert(`Please answer all questions for topic: ${attempt.topic}`);
+        return;
+      }
+    }
+
+    setLoading(true);
+    try {
+      const submissions = attempts.map(attempt => {
+        const attemptAnswers = answers[attempt.attempt_id] || {};
+        return {
+          attempt_id: attempt.attempt_id,
+          answers: attempt.questions.map(q => ({
+            question_id: q.question_id,
+            chosen_choice_text: attemptAnswers[q.question_id]
+          }))
+        };
+      });
+
+      const res = await axios.post(
+        "http://localhost:8000/api/quizzes/submit/",
+        {
+          session_id: sessionId,
+          submissions
+        },
+        { headers: getAuthHeader() }
+      );
+
+      setResults(res.data);
+      setCurrentPhase("results");
+    } catch (err) {
+      console.error(err);
+      alert("Submission failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNextRound = () => {
+    if (!results?.next_quizzes) return;
+    setAttempts(results.next_quizzes);
+    setSessionId(results.session_id); // Keep same session? Or new? Standard flow keeps session but adds round.
+    // Backend 'submit' response likely returns next_quizzes structure which matches 'attempts'.
+    setAnswers({});
+    setResults(null);
+    setCurrentPhase("quiz");
+  };
+
+  const handleReset = () => {
+    setCurrentPhase("input");
+    setInputTopics("");
+    setAttempts([]);
+    setAnswers({});
+    setResults(null);
+  };
+
   // Render "Initializing" state
   if (currentPhase === "initializing") {
     return (

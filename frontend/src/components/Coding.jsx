@@ -3,9 +3,21 @@ import CodeEditor from "./CodeEditor";
 import { loadPyodide } from "pyodide";
 import axios from "axios";
 import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
+import PlanSidebar from "./Code/PlanSidebar";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import "highlight.js/styles/github-dark.css";
+import VisualizerRenderer from "./VisualizerRenderer";
 
 export default function CodingPage() {
   const [searchParams] = useSearchParams();
+
+
+  // ... (existing render)
+
+
   const location = useLocation();
   const topic = searchParams.get("topic") || location.state?.topic;
 
@@ -20,10 +32,51 @@ export default function CodingPage() {
   const [pyodide, setPyodide] = useState(null);
   const [testCases, setTestCases] = useState([]);
   const [planDescription, setPlanDescription] = useState("");
-  const [isTopicModalOpen, setIsTopicModalOpen] = useState(!topic); // Auto-close if topic exists
+  const [isTopicModalOpen, setIsTopicModalOpen] = useState(!topic);
   const [userQuery, setUserQuery] = useState("");
   const [responseMode, setResponseMode] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const assistantEndRef = useRef(null);
+
+  // NEW: Function to load/resume a plan
+  const handleLoadPlan = async (planId) => {
+    setLoading(true);
+    try {
+      const userData = JSON.parse(localStorage.getItem("user"));
+      const token = userData?.access;
+
+      // 1. Fetch NEXT step for this plan
+      const res = await axios.post(
+        "http://localhost:8000/api/code/next-step/",
+        { plan_id: planId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (res.data.completed && !res.data.questions && !res.data.question) {
+        setPlanDescription("🎉 This plan is fully completed! Reviewing history not yet implemented.");
+        setQuestions([]);
+        setResponseMode(null);
+      } else {
+        const newQuestions = res.data.questions || [res.data.question];
+        const validQuestions = newQuestions.filter(q => q); // Filter nulls
+
+        if (validQuestions.length > 0) {
+          setQuestions(validQuestions);
+          setTestCases(validQuestions[0].testcases || []);
+          setPlanDescription(`🎯 Resumed: ${validQuestions[0].title}`);
+          setResponseMode("plan");
+          setCode(`# Phase ${res.data.index}: ${validQuestions[0].title}\n\ndef solution():\n    pass`);
+        }
+      }
+
+      setIsTopicModalOpen(false); // Close modal if open
+    } catch (err) {
+      console.error("Error loading plan:", err);
+      setPlanDescription("⚠️ Failed to load plan.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // AUTO-START for Standard Coding Page
   useEffect(() => {
@@ -36,7 +89,7 @@ export default function CodingPage() {
     async function initPyodide() {
       try {
         const py = await loadPyodide({
-          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/", // ✅ Fixed trailing spaces
+          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/",
         });
         setPyodide(py);
         setConsoleOutput("✅ Pyodide ready for code execution.");
@@ -81,7 +134,7 @@ export default function CodingPage() {
         );
         setQuestions(validQuestions);
         setTestCases(validQuestions.length > 0 ? validQuestions[0].testcases || [] : []);
-        setPlanDescription(data.plan || "");
+        setPlanDescription(`📋 Plan Created: ${data.total_phases} Phases. Starting Phase 0.`);
         setResponseMode("plan");
       } else {
         throw new Error("Unknown response type");
@@ -124,8 +177,6 @@ export default function CodingPage() {
       // We pass the code and testCases to Python
       const testCasesJson = JSON.stringify(testCases);
 
-      // We wrap user code in a function or exec it inside the loop
-      // NOTE: We need to handle 'input()' calls by mocking sys.stdin for each iteration
       const pythonRunnerScript = `
 import sys
 import json
@@ -177,15 +228,12 @@ results_json = run_tests(code_to_run, test_cases_json)
 results_json
 `;
 
-      // Set global variables for the script to access
       pyodide.globals.set("code_to_run", code);
       pyodide.globals.set("test_cases_json", testCasesJson);
 
-      // Run the harness
       const rawResults = await pyodide.runPythonAsync(pythonRunnerScript);
       const results = JSON.parse(rawResults);
 
-      // Formatting Output
       let outputString = "";
       let passCount = 0;
 
@@ -212,18 +260,17 @@ results_json
 
           const successRes = await axios.post(
             "http://127.0.0.1:8000/api/main-agent/report_success/",
-            {},
+            { source: "code" },
             { headers: { Authorization: `Bearer ${token}` } }
           );
 
           outputString += "\n🤖 TUTOR SAYS:\n" + successRes.data.reply + "\n";
 
-          // Handle Actions (Auto-Navigate to next step)
           if (successRes.data.action) {
             const action = successRes.data.action;
             outputString += `\n🚀 Auto-navigating to ${action.view}...`;
             setTimeout(() => {
-              if (action.view === 'code') window.location.href = '/coding'; // Simple reload/redirect
+              if (action.view === 'code') window.location.href = '/coding';
               if (action.view === 'debugger') window.location.href = '/debugger';
               if (action.view === 'quiz') window.location.href = '/quiz';
             }, 3000);
@@ -245,11 +292,23 @@ results_json
     const message = { role: "user", text: userPrompt, ts: Date.now() };
     setAssistantMessages((prev) => [...prev, message]);
     setLoading(true);
+    const userData = JSON.parse(localStorage.getItem("user"));
+    const token = userData?.access;
+
+    // Prepare history
+    const history = assistantMessages.map(msg => ({
+      role: msg.role,
+      content: msg.text
+    }));
+
     try {
-      const resp = await fetch("/api/AI", {
+      const resp = await fetch("http://localhost:8000/api/code/ai-assist/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userPrompt, code, model }),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ prompt: userPrompt, code, model, history }),
       });
       const data = await resp.json();
       const botMsg = {
@@ -288,12 +347,50 @@ results_json
 
   const currentQuestion = questions[currentIndex] || {};
 
+  // VISUALIZATION STATE
+  const [isVisModalOpen, setIsVisModalOpen] = useState(false);
+  const [visualizationHtml, setVisualizationHtml] = useState(null);
+  const [visLoading, setVisLoading] = useState(false);
+
+  const fetchVisualization = async () => {
+    if (!currentQuestion.title && !code) return;
+    setVisLoading(true);
+    setIsVisModalOpen(true);
+    try {
+      const userData = JSON.parse(localStorage.getItem("user"));
+      const token = userData?.access;
+      // Construct a prompt based on current context
+      const prompt = `Visualize this problem: ${currentQuestion.title || "User Code"}. 
+        Description: ${currentQuestion.description || "N/A"}. 
+        Current Code: ${code}`;
+
+      const res = await axios.post(
+        "http://localhost:8000/api/code/vis/",
+        { prompt },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setVisualizationHtml(res.data.visualization);
+    } catch (err) {
+      console.error(err);
+      setVisualizationHtml("<p class='text-red-500'>Failed to load visualization.</p>");
+    } finally {
+      setVisLoading(false);
+    }
+  };
+
   // =============== MODAL ===============
   const renderTopicModal = () => {
     if (!isTopicModalOpen) return null;
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50 p-4">
-        <div className="bg-gray-900 text-white p-6 rounded-xl w-full max-w-md shadow-xl border border-indigo-600">
+      <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-30 p-4">
+        <div className="bg-gray-900 text-white p-6 rounded-xl w-full max-w-md shadow-xl border border-indigo-600 relative">
+          <button
+            onClick={() => setIsTopicModalOpen(false)}
+            className="absolute top-2 right-2 text-gray-500 hover:text-white"
+          >
+            ✕
+          </button>
+
           <h2 className="text-xl font-bold mb-2 text-center text-indigo-300">🎯 What would you like to learn?</h2>
           <p className="text-sm text-gray-400 mb-4 text-center">
             e.g., “Recursive power function” or “5 DP problems”
@@ -419,15 +516,46 @@ results_json
   // =============== MAIN UI — FULL WIDTH + RESIZABLE ===============
   return (
     <div className="w-screen h-screen flex flex-col bg-gray-950 text-gray-200 overflow-hidden">
+
+      {/* SIDEBAR COMPONENT */}
+      <PlanSidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onSelectPlan={handleLoadPlan}
+      />
+
       {renderTopicModal()}
 
       {/* Header */}
-      <header className="p-4 bg-gray-900 border-b border-gray-800">
-        <h1 className="text-2xl font-bold text-white">💡 AI Coding Mentor</h1>
+      <header className="p-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          {/* Sidebar Toggle */}
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-800"
+            title="Saved Plans"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+          </button>
+          <h1 className="text-2xl font-bold text-white">💡 AI Coding Mentor</h1>
+        </div>
+
         {planDescription && (
-          <p className="text-indigo-400 mt-2 text-sm md:text-base">
+          <p className="text-indigo-400 text-sm md:text-base hidden md:block">
             {planDescription}
           </p>
+        )}
+
+        {/* NEW BUTTON TO OPEN NEW PLAN MODAL */}
+        {!isTopicModalOpen && (
+          <button
+            onClick={() => setIsTopicModalOpen(true)}
+            className="text-sm bg-indigo-900 hover:bg-indigo-800 text-indigo-200 px-3 py-1 rounded border border-indigo-700"
+          >
+            + New Topic
+          </button>
         )}
       </header>
 
@@ -438,7 +566,7 @@ results_json
             <button
               key={i}
               onClick={() => setCurrentIndex(i)}
-              className={`px - 4 py - 2 rounded - lg text - sm font - medium transition ${i === currentIndex
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition ${i === currentIndex
                 ? "bg-indigo-600 text-white"
                 : "bg-gray-800 text-gray-300 hover:bg-gray-700"
                 } `}
@@ -465,10 +593,13 @@ results_json
             ) : (
               <>
                 <h3 className="text-xl font-semibold text-white mb-3">{currentQuestion.title}</h3>
-                <div className="text-gray-300 whitespace-pre-wrap text-sm leading-relaxed">
-                  {currentQuestion.description?.trim() || (
-                    <span className="text-gray-500 italic">No description provided.</span>
-                  )}
+                <div className="text-gray-300 text-sm leading-relaxed markdown-body">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight, rehypeRaw]}
+                  >
+                    {currentQuestion.description ? currentQuestion.description.replace(/\\n/g, '\n').replace(/\n/g, '  \n') : "*No description provided.*"}
+                  </ReactMarkdown>
                 </div>
                 <div className="mt-4 pt-3 border-t border-gray-800">
                   <span className="inline-block px-3 py-1 bg-gray-800 rounded-full text-xs text-gray-400">
@@ -500,12 +631,20 @@ results_json
           >
             <div className="flex justify-between items-center p-3 bg-gray-850 border-b border-gray-800">
               <h3 className="font-medium text-indigo-300">🐍 Python Editor</h3>
-              <button
-                onClick={onRun}
-                className="bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg text-sm font-medium"
-              >
-                ▶ Run
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={fetchVisualization}
+                  className="bg-purple-600 hover:bg-purple-700 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-1"
+                >
+                  🎨 Visualize
+                </button>
+                <button
+                  onClick={onRun}
+                  className="bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg text-sm font-medium"
+                >
+                  ▶ Run
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               <CodeEditor code={code} setCode={setCode} />
@@ -567,7 +706,7 @@ results_json
                 assistantMessages.map((msg, i) => (
                   <div
                     key={i}
-                    className={`p - 3 rounded - lg max - w - [90 %] ${msg.role === "user"
+                    className={`p-3 rounded-lg max-w-[90%] ${msg.role === "user"
                       ? "bg-indigo-900/50 ml-auto border border-indigo-700"
                       : "bg-teal-900/20 mr-auto border border-teal-800"
                       } `}
@@ -617,11 +756,11 @@ results_json
               {testCases.length === 0 ? (
                 <p className="text-gray-500 text-sm italic">No test cases available.</p>
               ) : (
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {testCases.map((tc, i) => (
-                    <div key={i} className="text-xs">
-                      <div className="text-amber-400 font-medium">Input: {tc.input_data}</div>
-                      <div className="text-green-400 mt-1">→ {tc.expected_output}</div>
+                    <div key={i} className="text-xs bg-black/20 p-2 rounded border border-gray-800 font-mono">
+                      <div className="text-amber-400 font-medium whitespace-pre-wrap">Input: {tc.input_data}</div>
+                      <div className="text-green-400 mt-1 whitespace-pre-wrap">Expected: {tc.expected_output}</div>
                     </div>
                   ))}
                 </div>
@@ -630,6 +769,31 @@ results_json
           </div>
         </div>
       </div>
+      {/* VISUALIZATION MODAL */}
+      {isVisModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="bg-gray-900 w-full max-w-5xl h-[85vh] rounded-2xl border border-purple-500/50 shadow-2xl flex flex-col overflow-hidden relative">
+            <div className="p-4 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-purple-400">🎨 Algorithm Visualization</h3>
+              <button
+                onClick={() => setIsVisModalOpen(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 bg-white relative">
+              {visLoading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
+                </div>
+              ) : (
+                <VisualizerRenderer htmlContent={visualizationHtml} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 # views.py (or wherever your view lives)
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from .models import TutorSession
 from rest_framework.permissions import IsAuthenticated
 from users.authentication import JWTAuthentication
 from rest_framework.response import Response
@@ -13,6 +14,15 @@ from .services.groq_service import GroqService
 # configure genai for other endpoints (summarize/quiz)
 # genai.configure... (REMOVED)
 groq_service = GroqService()
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def reset_session(request):
+    try:
+        TutorSession.objects.filter(user_email=request.user.email).delete()
+        return Response({"message": "Session reset successfully."}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(["GET"])
 @authentication_classes([JWTAuthentication])
@@ -30,7 +40,7 @@ def welcome_message(request):
     
     # 2. Construct Prompt for Agent
     prompt = f"""
-    You are the welcome module for an AI Tutor.
+    You are the welcome module for an AI Python Tutor.
     User Context:
     - Name: {user.username}
     - Recent Topics Practiced: {", ".join(recent_topics) if recent_topics else "None"}
@@ -38,12 +48,9 @@ def welcome_message(request):
     
     Task:
     1. Generate a short, warm, personalized welcome message (max 2 lines).
-    2. Crucially, explicitly state that you are an AI Tutor constrained to 3 specific capabilities:
-       - **Plan**: Designing custom learning paths.
-       - **Learn**: Explaining concepts and answering questions.
-       - **Practice**: Providing coding challenges and quizzes.
-    3. Suggest 3 specific subtopics or new topics they should learn next based on this context. 
-       If context is empty, suggest "Python Basics", "Data Structures", "Algorithms".
+    2. Explicitly state you are a **Dedicated Theory Tutor** here to help them master concepts deeply.
+    3. Do NOT mention "Plan" or "Practice" or "Coding Challenges" (those are handled by other agents).
+    4. Provide 3 specific topic recommendations to start learning now.
        
     Output strictly JSON:
     {{
@@ -51,6 +58,7 @@ def welcome_message(request):
       "recommendations": ["Topic A", "Topic B", "Topic C"]
     }}
     """
+
     
     try:
         response_text = groq_service.generate_content(prompt)
@@ -94,6 +102,7 @@ def tutor_chat(request):
         return Response(
             {
                 "reply": result.get("reply"),
+                "visualization": result.get("visualization"),
                 "awaiting_reply": bool(result.get("awaiting_reply", False)),
                 "is_complete": bool(result.get("is_complete", False)),
                 "ended": bool(result.get("ended", False)),
@@ -177,6 +186,53 @@ def generate_quiz(request):
         quiz_data = json.loads(json_match.group()) if json_match else []
 
         return Response({"quiz": quiz_data}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_key_concepts(request):
+    try:
+        user = request.user
+        # Get active tutor session
+        session = TutorSession.objects.filter(user_email=user.email).first()
+        
+        if session and session.subtopics:
+            # Return the subtopics as key concepts
+            return Response(session.subtopics, status=status.HTTP_200_OK)
+        else:
+            # Default concepts if no session
+            return Response(["Start a topic to see concepts!", "Python Basics", "Algorithms"], status=status.HTTP_200_OK)
+            
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def regenerate_visualization_view(request):
+    try:
+        topic = request.data.get("topic")
+        
+        # If no topic provided, try to infer from session
+        if not topic:
+             session = TutorSession.objects.filter(user_email=request.user.email).first()
+             if session:
+                 # Use current subtopic if active, else broad topic
+                 # Note: session object might not have current_subtopic as a direct field if it's just a list index
+                 # But let's assume valid fields for now based on earlier code
+                 if session.subtopics and 0 <= session.current_index < len(session.subtopics):
+                     topic = session.subtopics[session.current_index]
+                 else:
+                     topic = session.current_topic
+        
+        if not topic:
+            return Response({"error": "No topic provided or active session found."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .services.persistent_tutor import regenerate_visualization
+        html_code = regenerate_visualization(topic)
+        
+        return Response({"visualization": html_code}, status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

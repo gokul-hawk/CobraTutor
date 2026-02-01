@@ -7,6 +7,7 @@ class TutorSession(models.Model):
         ("TEACHING", "Teaching"),
         ("AWAITING_ANSWER", "Awaiting Answer"),
         ("AWAITING_SWITCH_CONFIRMATION", "Awaiting Switch Confirmation"),
+        ("AWAITING_PLAN_APPROVAL", "Awaiting Plan Approval"),
     ]
 
     # Storing user_id as string because User model is MongoDB (non-relational mixed with SQL)

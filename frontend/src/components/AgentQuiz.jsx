@@ -133,7 +133,7 @@ const AgentQuiz = () => {
                     try {
                         const res = await axios.post(
                             "http://localhost:8000/api/main-agent/report_success/",
-                            { failed_topics: results.all_failed_topics || [] },
+                            { failed_topics: results.all_failed_topics || [], source: "quiz" },
                             { headers: getAuthHeader() }
                         );
                         if (res.data.action) {
@@ -141,7 +141,8 @@ const AgentQuiz = () => {
                                 if (res.data.action.view === 'code') navigate(`/agent-code?topic=${encodeURIComponent(res.data.action.data.topic)}`);
                                 if (res.data.action.view === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(res.data.action.data.topic)}`);
                                 if (res.data.action.view === 'tutor') navigate('/agent-tutor', { state: { initialMessage: res.data.reply } }); // Pass reply
-                                if (res.data.action.view === 'quiz') navigate(`/agent-quiz?topic=${encodeURIComponent(res.data.action.data.topic)}`);
+                                if (res.data.action.view === 'Gaps') navigate(`/agent-quiz?topic=${encodeURIComponent(res.data.action.data.topic)}`);
+                                if (res.data.action.view === 'dashboard') navigate('/');
                             }, 2000);
                         } else {
                             // No explicit action (e.g., Teaching Phase), go to Tutor to read the reply

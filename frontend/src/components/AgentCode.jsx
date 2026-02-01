@@ -3,6 +3,7 @@ import CodeEditor from "./CodeEditor";
 import { loadPyodide } from "pyodide";
 import axios from "axios";
 import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
+import VisualizerRenderer from "./VisualizerRenderer";
 
 export default function AgentCode() {
     const [searchParams] = useSearchParams();
@@ -24,6 +25,37 @@ export default function AgentCode() {
     const [planDescription, setPlanDescription] = useState("");
     const [responseMode, setResponseMode] = useState(null);
     const assistantEndRef = useRef(null);
+
+    // VISUALIZATION STATE
+    const [isVisModalOpen, setIsVisModalOpen] = useState(false);
+    const [visualizationHtml, setVisualizationHtml] = useState(null);
+    const [visLoading, setVisLoading] = useState(false);
+
+    const fetchVisualization = async () => {
+        if (!currentQuestion.title && !code) return;
+        setVisLoading(true);
+        setIsVisModalOpen(true);
+        try {
+            const userData = JSON.parse(localStorage.getItem("user"));
+            const token = userData?.access;
+            // Construct a prompt based on current context
+            const prompt = `Visualize this problem: ${currentQuestion.title || "User Code"}. 
+            Description: ${currentQuestion.description || "N/A"}. 
+            Current Code: ${code}`;
+
+            const res = await axios.post(
+                "http://localhost:8000/api/code/vis/",
+                { prompt },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setVisualizationHtml(res.data.visualization);
+        } catch (err) {
+            console.error(err);
+            setVisualizationHtml("<p class='text-red-500'>Failed to load visualization.</p>");
+        } finally {
+            setVisLoading(false);
+        }
+    };
 
     // Auto-Fetch
     useEffect(() => {
@@ -103,7 +135,50 @@ export default function AgentCode() {
         }
     };
 
+    const onSkip = async () => {
+        if (!window.confirm("Are you sure you want to skip this challenge?")) return;
+        setConsoleOutput("⏭️ Skipping challenge...");
+
+        try {
+            const userData = JSON.parse(localStorage.getItem("user"));
+            const token = userData?.access;
+
+            // Call AGENT Success Report
+            const successRes = await axios.post(
+                "http://127.0.0.1:8000/api/main-agent/report_success/",
+                {},
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            setConsoleOutput((prev) => prev + "\n🤖 AGENT SAYS:\n" + successRes.data.reply + "\n");
+
+            if (successRes.data.action) {
+                const action = successRes.data.action;
+                setConsoleOutput((prev) => prev + `\n🚀 Auto-navigating to ${action.view}...`);
+                console.log(action, action.view)
+                setTimeout(() => {
+                    if (action.view === 'code') navigate(`/agent-code?topic=${encodeURIComponent(action.data?.topic)}`);
+                    if (action.view === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(action.data?.topic)}`);
+                    if (action.view === 'Gaps') navigate(`/agent-quiz?topic=${encodeURIComponent(action.data?.topic)}`);
+                    if (action.view === 'tutor') navigate('/agent-tutor', { state: { initialMessage: successRes.data.reply } });
+                    if (action.view === 'dashboard') navigate('/');
+                }, 2000);
+            } else {
+                setConsoleOutput((prev) => prev + `\n🚀 Auto-navigating to Tutor...`);
+                setTimeout(() => {
+                    navigate('/agent-tutor', { state: { initialMessage: successRes.data.reply } });
+                }, 2000);
+            }
+        } catch (apiErr) {
+            console.error(apiErr);
+            setConsoleOutput((prev) => prev + "\n⚠️ Failed to report success to Agent.");
+        }
+    };
+
+
+
     const onRun = async () => {
+
         if (!pyodide) {
             return setConsoleOutput("⏳ Pyodide is still loading...");
         }
@@ -222,8 +297,8 @@ results_json
                             if (action.view === 'debugger') navigate(`/agent-debugger?topic=${encodeURIComponent(action.data?.topic)}`);
                             if (action.view === 'quiz') navigate(`/agent-quiz?topic=${encodeURIComponent(action.data?.topic)}`);
                             if (action.view === 'tutor') navigate('/agent-tutor', { state: { initialMessage: successRes.data.reply } });
+                            if (action.view === 'dashboard') navigate('/');
                         }, 2000);
-                    } else {
                         // Text Reply -> Go to Tutor
                         outputString += `\n🚀 Auto-navigating to Tutor...`;
                         setTimeout(() => {
@@ -247,11 +322,24 @@ results_json
         const message = { role: "user", text: userPrompt, ts: Date.now() };
         setAssistantMessages((prev) => [...prev, message]);
         setLoading(true);
+
+        const userData = JSON.parse(localStorage.getItem("user"));
+        const token = userData?.access;
+
+        // Prepare history
+        const history = assistantMessages.map(msg => ({
+            role: msg.role,
+            content: msg.text
+        }));
+
         try {
-            const resp = await fetch("/api/AI", {
+            const resp = await fetch("http://localhost:8000/api/code/ai-assist/", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: userPrompt, code, model }),
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({ prompt: userPrompt, code, model, history }),
             });
             const data = await resp.json();
             const botMsg = {
@@ -500,12 +588,26 @@ results_json
                     >
                         <div className="flex justify-between items-center p-3 bg-gray-850 border-b border-gray-800">
                             <h3 className="font-medium text-indigo-300">🐍 Python Editor</h3>
-                            <button
-                                onClick={onRun}
-                                className="bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg text-sm font-medium"
-                            >
-                                ▶ Run
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={fetchVisualization}
+                                    className="bg-purple-600 hover:bg-purple-700 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-colors flex items-center gap-1"
+                                >
+                                    🎨 Visualize
+                                </button>
+                                <button
+                                    onClick={onSkip}
+                                    className="bg-yellow-600 hover:bg-yellow-700 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-colors"
+                                >
+                                    ⏭️ Skip
+                                </button>
+                                <button
+                                    onClick={onRun}
+                                    className="bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg text-sm font-medium"
+                                >
+                                    ▶ Run
+                                </button>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-hidden">
                             <CodeEditor code={code} setCode={setCode} />
@@ -630,6 +732,31 @@ results_json
                     </div>
                 </div>
             </div>
+            {/* VISUALIZATION MODAL */}
+            {isVisModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+                    <div className="bg-gray-900 w-full max-w-5xl h-[85vh] rounded-2xl border border-purple-500/50 shadow-2xl flex flex-col overflow-hidden relative">
+                        <div className="p-4 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+                            <h3 className="text-xl font-bold text-purple-400">🎨 Algorithm Visualization</h3>
+                            <button
+                                onClick={() => setIsVisModalOpen(false)}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="flex-1 bg-white relative">
+                            {visLoading ? (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
+                                </div>
+                            ) : (
+                                <VisualizerRenderer htmlContent={visualizationHtml} />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
