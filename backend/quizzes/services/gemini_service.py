@@ -57,6 +57,11 @@ class GeminiService:
 
             if isinstance(data, dict):
                 data = [data]
+            
+            # Additional safety: ensure it's a list
+            if not isinstance(data, list):
+                return []
+                
             return data[:num_questions]
         except Exception as e:
             print(f"Groq error for topic '{topic}': {e}")

@@ -21,6 +21,7 @@ class PlannerAgent:
         Return ONLY a JSON list of steps. No other text.
         
         Examples:
+        [Comprehensive] -> [{{"step": "check_prereqs", "topic": "{topic}", action="Gaps"}},{{"step": "teach_content", "topic": "{topic} Theory & Examples", action="tutor"}}, {{"step": "practice_code", "topic": "{topic} Challenge", action="code"}}, {{"step": "practice_debug", "topic": "{topic} Debugging", action="debugger"}}]
         [Test Prep] -> [{{"step": "teach_content", "topic": "{topic} Theory & Examples", action="tutor"}}]
         [Practical] -> [{{"step": "practice_code", "topic": "{topic} Challenge", action="code"}}]
         

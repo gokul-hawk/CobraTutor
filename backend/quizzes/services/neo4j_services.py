@@ -13,7 +13,7 @@ class Neo4jService:
             settings.NEO4J_URI,
             auth=(settings.NEO4J_USER, os.getenv('NEO4J_PASSWORD'))
         )
-        self.database = database or "neo4j"
+        self.database = "dsa"
 
     def close(self):
         self.driver.close()

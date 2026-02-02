@@ -1,5 +1,6 @@
 
 
+
 services:
   # The Django Backend Service
   frontend:
@@ -37,7 +38,7 @@ services:
 
   # The Neo4j Knowledge Graph Service
   graph_db:
-    image: neo4j:latest
+    image: neo4j:enterprise
     container_name: cobra_neo4j_db_1
     ports:
       - "7474:7474" # For the Neo4j Browser UI
@@ -45,8 +46,10 @@ services:
     environment:
       # !! IMPORTANT: Change this password in your .env file for production !!
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
     volumes:
       - neo4j_data:/data
+      - ./import:/var/lib/neo4j/import
 
 volumes:
   mongo_data:

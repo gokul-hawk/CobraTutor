@@ -116,8 +116,6 @@ class MainAgentOrchestrator:
         trigger a new plan via the Router.
         """
         self._save_bot_reply(f"System: {context_message}")
-        
-        # Check history str for context if needed, but usually not needed for step execution
         history_str = "" 
         return self._execute_plan_step(context_message, history_str)
 
@@ -177,7 +175,8 @@ class MainAgentOrchestrator:
                  self.session.save()
                  
                  # Force start the topic in SQL DB
-                 start_res = start_new_topic(self.user, step_topic)
+                 is_rev = current_step.get("mode") == "revision"
+                 start_res = start_new_topic(self.user, step_topic, is_revision=is_rev)
                  roadmap_reply = start_res.get("reply")
                  
                  reply = f"I'm pointing you to the Tutor for **{step_topic}**."

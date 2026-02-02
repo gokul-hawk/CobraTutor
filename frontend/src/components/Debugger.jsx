@@ -130,7 +130,7 @@ const Debugger = () => {
             try {
                 if (window.loadPyodide && !pyodide) {
                     const pyodideInstance = await window.loadPyodide({
-                        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/"
+                        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.0/full/"
                     });
                     setPyodide(pyodideInstance);
                 }

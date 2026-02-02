@@ -18,6 +18,8 @@ class QuizService:
         saved_questions = []
 
         for q in raw_questions:
+            if not isinstance(q, dict):
+                continue
             if not all(k in q for k in ["question", "options", "correct_answer"]):
                 continue
             if len(q["options"]) != 4:

@@ -23,17 +23,37 @@ def clean_json_blocks(text):
     
     # 1. Remove <think> blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    
-    # 2. Extract JSON from code blocks
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0].strip()
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0].strip()
-    
-    # 3. Last resort: regex find JSON object
-    match = re.search(r"(\{|\[).+(\}|\])", text, re.DOTALL)
+
+    # 2. Try direct parse first (if it looks like JSON)
+    if text.startswith("{") or text.startswith("["):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Regex search for generic JSON object/array (greedy match)
+    # captures from first { to last }
+    match = re.search(r"(\{.*\}|\[.*\])", text, re.DOTALL)
     if match:
-        text = match.group()
+        candidate = match.group(1)
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Fallback to code block extraction (only if regex failed)
+    if "```json" in text:
+        try:
+             candidate = text.split("```json")[1].split("```")[0].strip()
+             return json.loads(candidate)
+        except:
+             pass
+    elif "```" in text:
+        try:
+             candidate = text.split("```")[1].split("```")[0].strip()
+             return json.loads(candidate)
+        except:
+             pass
 
     try:
         return json.loads(text)

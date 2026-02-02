@@ -21,7 +21,7 @@ def get_debugger_challenge(request):
 
     # 1. Check if we already have enough challenges for this topic/difficulty
     existing_challenges = list(DebuggerChallenge.objects.filter(topic=topic, difficulty=difficulty))
-    
+    print(1)
     if len(existing_challenges) >= count:
         # If we have enough, just return a random sample of them
         selected_challenges = random.sample(existing_challenges, count)
@@ -36,7 +36,7 @@ def get_debugger_challenge(request):
                 "difficulty": c.difficulty
             })
         return JsonResponse(result, safe=False)
-
+    print(2)
     # 2. If not, generate a batch using LLM
     prompt = f"""
     Generate {count} unique Python debugging challenges for the topic '{topic}' and difficulty '{difficulty}'.
@@ -64,6 +64,7 @@ def get_debugger_challenge(request):
     
     try:
         content = groq_service.generate_content(prompt)
+        print(content)
         content = content.replace("```json", "").replace("```", "").strip()
         data_list = json.loads(content)
         

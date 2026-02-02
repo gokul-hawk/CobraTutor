@@ -104,12 +104,35 @@ def report_success(request):
         if failed_topics:
             safe_topics = [str(t) for t in failed_topics]
             msg += f" User FAILED prerequisites: {', '.join(safe_topics)}."
+            
+            # Re-queue current step to preserve flow (it will be consumed by the next report_success)
+            session.current_plan.insert(0, completed_step)
+            session.save()
+            
+            # Direct switch to Tutor for Revision
+            from chatbot.services.persistent_tutor import start_new_topic
+            topic = failed_topics
+            start_res = start_new_topic(request.user, topic, is_revision=True)
+            
+            reply_text = f"Prerequisite failure detected. Let's do a quick revision of **{topic}**."
+            session.chat_history.append({"sender": "bot", "text": reply_text})
+            session.save()
+            
+            result = {
+                "reply": reply_text,
+                "action": {
+                    "type": "SWITCH_TAB",
+                    "view": "tutor",
+                    "data": {"topic": topic, "initialMessage": start_res["reply"]}
+                }
+            }
+            return Response(result, status=status.HTTP_200_OK)
+            
         else:
             msg += " User PASSED."
-            
-        result = orchestrator.advance_plan(msg)
-        print(4,result)
-        return Response(result, status=status.HTTP_200_OK)
+            result = orchestrator.advance_plan(msg)
+            print(4,result)
+            return Response(result, status=status.HTTP_200_OK)
 
     except Exception as e:
         import traceback

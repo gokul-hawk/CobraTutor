@@ -44,7 +44,7 @@ def clean_json_response(text):
         print(f"JSON Parse Error: {text}")
         return None
 
-def generate_subtopics_python(topic):
+def generate_subtopics_python(topic, **kwargs):
     prompt = f"""
     You are an expert Computer Science Curriculum Designer for strictly python.
     Create a highly structured, emoji-rich learning roadmap for "{topic}".
@@ -53,7 +53,7 @@ def generate_subtopics_python(topic):
     
     Output strictly a JSON object with two keys:
     1. "roadmap_md": A string containing the beautiful Markdown representation.
-       - Use headers "🟢 {topic.upper()} COMPLETE ROADMAP".
+       - Use headers "🟢 {topic} COMPLETE ROADMAP".
        - Use "Level X - Title" format.
        - Use bullet points with formatting.
        - Mark important concepts with "🔥".
@@ -68,6 +68,31 @@ def generate_subtopics_python(topic):
       "steps": ["Stack Definition", "LIFO Principle", "Push/Pop Operations", ...]
     }}
     """
+    if kwargs.get('is_revision'):
+        prompt = f"""
+        You are an expert Computer Science Tutor.
+        The user FAILED a diagnostic quiz on "{topic}".
+        Create a FAST TRACK REVISION checklist for "{topic}" to help them fill gaps quickly.
+        
+        Structure:
+        - Focus ONLY on Key Concepts and Common Pitfalls.
+        - Be concise. No fluff.
+        - Emoji-rich but professional.
+        
+        Output strictly a JSON object with two keys:
+        1. "roadmap_md": A string containing the Markdown representation.
+           - Header: "⚡ REVISION: {topic}"
+           - Use simple bullet points.
+        
+        2. "steps": A flat list of strings representing the key concepts to review.
+           - Keep it under 5 steps if possible.
+           
+        Example Output Format:
+        {{
+          "roadmap_md": "⚡ REVISION: STACKS\\n* 🔑 Concept: LIFO\\n* ⚠️ Pitfall: Overflow",
+          "steps": ["LIFO Concept", "Stack Operations", "Common Errors"]
+        }}
+        """
     text = groq_service.generate_content(prompt)
     data = clean_json_response(text)
     
@@ -105,8 +130,42 @@ def teach_content(subtopic, style="Socratic"):
     [/CONTENT]
     
     [VISUALIZATION]
-    (Your complete, self-contained HTML/JS code here, starting with <!DOCTYPE html>.)
-    (If no visualization is suitable, leave this block empty.)
+     You are a specialized Visualization Code Generator.
+
+Your task is to generate a complete, self-contained **single-page HTML document** (one file) that visually and interactively demonstrates the requested algorithm or data structure.
+
+RULES:
+1. Respond ONLY with the plain HTML document as a single string (start with <!DOCTYPE html> and include <html> ...). Do NOT wrap the output in JSON, Markdown, comments, or any additional text.
+2. The document MUST include Tailwind CSS loaded via CDN (https://cdn.tailwindcss.com) and use Tailwind utility classes for styling. Do NOT include external CSS files other than the Tailwind CDN.
+3. Use only plain, vanilla JavaScript for interactivity. Do NOT use React, Vue, or any other frameworks/libraries. You may include inline <script> tags inside the HTML file.
+4. The page MUST include at least two visible controls labeled "Next Step" and "Reset" to control the visualization, and display the current step index.
+5. The HTML should be self-contained and runnable inside an iframe (no module imports, no ESM import/export statements, no external network calls other than the Tailwind CDN).
+6. Ensure all DOM element IDs and classes are unique and descriptive to avoid collisions when embedded in an iframe.
+7. The visual output should be responsive and usable on common desktop/mobile widths.
+8. Include a small legend explaining colors/states used in the visualization (e.g., comparing, swapping, sorted).
+9. Keep the code robust: sanitize inputs if accepting user input, avoid using `eval`, and do not depend on server-side resources.
+10. The HTML must be ready to render as-is; the user should be able to paste it into an iframe or file and see the fully working visualization without modifications.
+11.The input should be from the user 
+12.The visualization should also say what is happening at each step
+13.Every step should be understandable visually
+14.Add animation how they connect or change in real time
+15.Visualize the problem first before visualizing the algorithm and then change the visualization to show how the algorithm works
+16.provide how the datastructureschange if It needed in the problem 
+17.Make sure the illustrattion of how a real code algorithm would work
+18.do the swapping or changing of datastructures in real time.
+Do not add any additional commentary — output only the HTML document.
+
+Steps:
+1. Get the problem or algorithm from the user
+2. identify the problem or algorithm
+3. Find the best method or implementation of the solution for the problem
+4. Identify the Datastructures needed for the problem
+5. now plan the blocks to get input
+6 now plan all possible interaction in the HTML
+7. now plan all the code, data structure and explaination of each step in the HTML
+8. now plan the final code
+9. provide code snippet 
+10. now generate html with clean code and provide best animaation for with tailwind css
     [/VISUALIZATION]
     
     Guidelines for Content:
@@ -228,7 +287,7 @@ def analyze_input(user_input, current_topic, current_subtopic, last_bot_question
     """
     return clean_json_response(groq_service.generate_content(prompt))
     
-def start_new_topic(user, topic):
+def start_new_topic(user, topic, is_revision=False):
     """
     Forces the Tutor Session to start a new topic immediately.
     Used by Main Agent Orchestrator to sync state.
@@ -237,7 +296,7 @@ def start_new_topic(user, topic):
     session.current_topic = topic
     
     # Generate Rich Roadmap
-    roadmap_md, steps = generate_subtopics_python(topic)
+    roadmap_md, steps = generate_subtopics_python(topic, is_revision=is_revision)
     session.subtopics = steps
              
     session.current_index = -1 
